@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "comment": "Pinned runtime assets. Refresh with: python packaging/fetch_assets.py --update",
+  "assets": [
+    {
+      "path": "format/format.json",
+      "url": "https://gateway.scanlake.rocks/api/format",
+      "sha256": "3da231a2916db2f270c3aaca82bb1631c0f0e17598acf617dc66a211c1a136d9",
+      "size": 3307
+    },
+    {
+      "path": "profiles/manifest.json",
+      "url": "https://capture.scanlake.rocks/profiles/manifest.json",
+      "sha256": "a32f5e400c745afdce3b292486213e3acae6aaed8347481e0bd97abca0e0931b",
+      "size": 265
+    },
+    {
+      "path": "profiles/mole_relative_anchors_crnn.json",
+      "url": "https://capture.scanlake.rocks/profiles/mole_relative_anchors_crnn.json",
+      "sha256": "425ddbaa4404910b0133e930c792e70b23a1814360ecf287174d4cf88e578894",
+      "size": 19877
+    },
+    {
+      "path": "profiles/golem_relative_anchors_crnn.json",
+      "url": "https://capture.scanlake.rocks/profiles/golem_relative_anchors_crnn.json",
+      "sha256": "c3f2a4b8772530a81d0b9c122a3a7119833361eff65addd09357a5828e53f05b",
+      "size": 19845
+    },
+    {
+      "path": "profiles/prospector_relative_anchors_crnn.json",
+      "url": "https://capture.scanlake.rocks/profiles/prospector_relative_anchors_crnn.json",
+      "sha256": "b1a0843083978c03fc9241d0f65b94034f2a69bd83bae5efbb71f1c074e32e85",
+      "size": 19864
+    },
+    {
+      "path": "anchors/scan.png",
+      "url": "https://capture.scanlake.rocks/anchors/scan.png",
+      "sha256": "a60fcfa61332310a005172f83682331965be14a988284ab1cb30bebce3c7384c",
+      "size": 1634
+    },
+    {
+      "path": "anchors/cargo.png",
+      "url": "https://capture.scanlake.rocks/anchors/cargo.png",
+      "sha256": "b95e4b898198000f6ab2ab19cbe77d55327a501f970abbec406c8b6158cfd43d",
+      "size": 2220
+    },
+    {
+      "path": "anchors/auto.png",
+      "url": "https://capture.scanlake.rocks/anchors/auto.png",
+      "sha256": "94c2ca82733805740b3835eb99603ad67b0a86cdbbc96e18d1c0c63ed5efadcd",
+      "size": 2175
+    },
+    {
+      "path": "anchors/golem_scan.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/golem_scan.jpg",
+      "sha256": "0a33b2443653b1e7d397f8ebb7f4a3b0fd5941442ab1273f32802fab728d37fc",
+      "size": 5460
+    },
+    {
+      "path": "anchors/golem_cargo.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/golem_cargo.jpg",
+      "sha256": "e79feb1f3eac608a7057637371548c9ef05d3706595fa85185ed9c9f765883b2",
+      "size": 5904
+    },
+    {
+      "path": "anchors/golem_auto.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/golem_auto.jpg",
+      "sha256": "25995e50b1cead7a653ba9190da13e4b865175ca307bf329e59d3999d1e67b41",
+      "size": 5623
+    },
+    {
+      "path": "anchors/prospector_scan.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/prospector_scan.jpg",
+      "sha256": "67085e73872af09f559fdfa3de6e46c7558bf4d7371948f92d4e1f41c604382e",
+      "size": 5452
+    },
+    {
+      "path": "anchors/prospector_cargo.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/prospector_cargo.jpg",
+      "sha256": "5bca56d82dc3a1d27db8cacc0204ff01d3eb79f8dc28cc9f05a8bb1deb0b2506",
+      "size": 5457
+    },
+    {
+      "path": "anchors/prospector_auto.jpg",
+      "url": "https://capture.scanlake.rocks/anchors/prospector_auto.jpg",
+      "sha256": "e9b5bd7529ab894799e3b96f9ac95f3291c9b641ee5d7301faa67976702e5815",
+      "size": 5398
+    },
+    {
+      "path": "models/digit_crnn.json",
+      "url": "https://capture.scanlake.rocks/models/digit_crnn.json",
+      "sha256": "c5d7d2efbbdb52b71e70616d2202a49283904bb81274b947389a3ee6eb18b01c",
+      "size": 362
+    },
+    {
+      "path": "models/digit_crnn.onnx",
+      "url": "https://capture.scanlake.rocks/models/digit_crnn.onnx",
+      "sha256": "ffa3c26f7fcb1051c2738a299ae100ebd83628b15c9aae78080c7e7396cbfea4",
+      "size": 16086
+    },
+    {
+      "path": "models/digit_crnn.onnx.data",
+      "url": "https://capture.scanlake.rocks/models/digit_crnn.onnx.data",
+      "sha256": "745623696cddfe08d90d2e71e279041366d7722e57512d619d01ef7565285c42",
+      "size": 13631488
+    },
+    {
+      "path": "models/word_model2k.json",
+      "url": "https://capture.scanlake.rocks/models/word_model2k.json",
+      "sha256": "c78d8338816a2dc114895d8c4eeb3a7551749d27d4169b83a703c919388a34ab",
+      "size": 637
+    },
+    {
+      "path": "models/word_model2k.onnx",
+      "url": "https://capture.scanlake.rocks/models/word_model2k.onnx",
+      "sha256": "a423ad7b6228292d39a1c358646421b431284d332268c0d4c4bac41012f0b65e",
+      "size": 3202
+    },
+    {
+      "path": "models/word_model2k.onnx.data",
+      "url": "https://gateway.scanlake.rocks/public/models/word_model2k.onnx.data",
+      "sha256": "3c629ed7b1fd864f38072ec1cc0936303580970dfe1fa06842634dcf2574aa45",
+      "size": 17180796
+    }
+  ]
+}

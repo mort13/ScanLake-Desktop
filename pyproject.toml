@@ -1,0 +1,71 @@
+# Workspace root (virtual: not a package itself).
+#   uv sync                                           -> dev env: every member, incl. torch + training
+#   uv sync --package scanlake-desktop --no-dev       -> player env (ORT only); used by packaging
+
+[tool.uv.workspace]
+members = ["packages/*", "apps/*"]
+
+[tool.uv.sources]
+scanlake-core = { workspace = true }
+scanlake-inference = { workspace = true }
+scanlake-io = { workspace = true }
+scanlake-models = { workspace = true }
+scanlake-training = { workspace = true }
+scanlake-desktop = { workspace = true }
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[dependency-groups]
+dev = [
+    "scanlake-core",
+    "scanlake-inference",
+    "scanlake-io",
+    "scanlake-desktop",
+    "scanlake-models",
+    "scanlake-training",
+    "pytest>=8",
+    "pytest-qt>=4.4",
+    "respx>=0.22",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+# PyPI's Windows torch wheel is the CPU build; on Linux (CI) PyPI ships the large CUDA build,
+# so take the CPU wheel from PyTorch's index there. The NVIDIA (cu128) player flavor is
+# selected at packaging time.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.format]
+# Frozen copy of the training code, compared bit for bit: keep it verbatim
+exclude = ["tests/reference/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "scanlake_core", "scanlake_inference", "scanlake_io", "scanlake_models",
+    "scanlake_training", "scanlake_desktop", "tests",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "packages", "apps"]
+markers = [
+    "torch: needs PyTorch (not installed in the player env)",
+    "network: talks to the deployed ScanLake services",
+]
+addopts = "-m 'not network'"
+
+[tool.pyright]
+include = ["packages", "apps", "tests", "packaging"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"

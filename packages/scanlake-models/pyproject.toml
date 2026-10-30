@@ -1,0 +1,17 @@
+[project]
+name = "scanlake-models"
+version = "0.1.0"
+description = "PyTorch model definitions and checkpoint format for ScanLake (DigitCRNN, WordCNN)"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.1",
+    "torch>=2.6",
+    "safetensors>=0.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scanlake_models"]

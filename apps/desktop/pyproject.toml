@@ -1,0 +1,30 @@
+[project]
+name = "scanlake-desktop"
+version = "0.1.0"
+description = "ScanLake Desktop: capture Star Citizen mining scans and upload them to ScanLake"
+requires-python = ">=3.13"
+dependencies = [
+    "scanlake-core",
+    "scanlake-inference",
+    "scanlake-io",
+    # Essentials = QtCore/Gui/Widgets/Network etc. without WebEngine, Quick, Multimedia
+    "PySide6-Essentials>=6.8",
+    "mss>=10",
+    "pynput>=1.7.7",
+    "keyring>=25",
+    "platformdirs>=4",
+    "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+torch = ["scanlake-inference[torch]", "scanlake-training"]
+
+[project.gui-scripts]
+scanlake-desktop = "scanlake_desktop.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scanlake_desktop"]

@@ -1,0 +1,22 @@
+[project]
+name = "scanlake-training"
+version = "0.1.0"
+description = "Training, synthetic data and ONNX export for the ScanLake models"
+requires-python = ">=3.13"
+dependencies = [
+    "scanlake-core",
+    "scanlake-models",
+    "numpy>=2.1",
+    "opencv-python-headless>=4.10,<5",
+    "onnx>=1.17",
+]
+
+[project.scripts]
+scanlake-train = "scanlake_training.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scanlake_training"]

@@ -1,0 +1,23 @@
+{
+  "agricium":      ["ore"],
+  "aluminium":     ["ore"],
+  "beryl":         ["raw"],
+  "bexalite":      ["raw"],
+  "borase":        ["ore"],
+  "copper":        ["ore"],
+  "corundum":      ["raw"],
+  "gold":          ["ore"],
+  "hephaestanite": ["ore"],
+  "iron":          ["ore"],
+  "laranite":      ["raw"],
+  "lindinium":     ["ore"],
+  "quantanium":    ["raw"],
+  "quartz":        ["raw"],
+  "riccite":       ["ore"],
+  "savrilium":     ["ore"],
+  "stileron":      ["raw"],
+  "taranite":      ["raw"],
+  "titanium":      ["ore"],
+  "torite":        ["ore"],
+  "tungsten":      ["ore"]
+}

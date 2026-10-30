@@ -1,0 +1,36 @@
+# Python
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pyright/
+dist/
+build/
+*.egg-info/
+
+# Fetched assets and generated data (pinned in assets/assets.lock.json, never committed)
+assets/*
+!assets/assets.lock.json
+*.onnx
+*.onnx.data
+*.pth
+*.pt
+*.safetensors
+data/
+runs/
+out/
+
+# Golden fixtures are committed on purpose; scratch captures are not
+snapshots/
+debug_*/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Packaging
+.venv-ort/
+build/
+dist/
