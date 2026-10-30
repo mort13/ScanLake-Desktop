@@ -22,6 +22,22 @@ from tests.conftest import ASSETS
 WORD_CLASSES = ("aluminium", "empty", "inert_materials", "quartz")
 
 
+def test_train_cli_runs_after_freeze_support(monkeypatch: pytest.MonkeyPatch) -> None:
+    import multiprocessing
+    import sys
+    import types
+
+    from scanlake_desktop.__main__ import main
+
+    calls: list[str] = []
+    cli = types.ModuleType("scanlake_training.cli")
+    cli.main = lambda argv: calls.append(f"train {argv}") or 0  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "scanlake_training.cli", cli)
+    monkeypatch.setattr(multiprocessing, "freeze_support", lambda: calls.append("freeze"))
+    assert main(["--train-cli", "export", "a", "b"]) == 0
+    assert calls == ["freeze", "train ['export', 'a', 'b']"]
+
+
 def test_hud_text_and_word_class() -> None:
     assert hud_text("amount", "42.09", "42.09%") == "42.09%"
     assert hud_text("amount", "42.10", "42.09%") == "42.10%"  # corrected: rebuilt with %

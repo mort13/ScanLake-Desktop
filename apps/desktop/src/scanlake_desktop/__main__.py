@@ -97,6 +97,11 @@ def self_test(report_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import multiprocessing
+
+    # In the frozen app, DataLoader worker processes re-run this exe: let them run their task
+    # instead of starting the app again (a no-op when not frozen)
+    multiprocessing.freeze_support()
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--train-cli"]:  # dev mode runs training through the app (frozen too)
         from scanlake_training.cli import main as train_main
