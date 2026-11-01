@@ -45,13 +45,13 @@ def _batch(n: int, seed: int = 0) -> np.ndarray:
 
 
 def test_metadata(cpu: OrtEngine) -> None:
-    assert cpu.digit_classes == "0123456789.%"
+    assert cpu.digit_classes == "0123456789.%m"  # "m": milli-SCU volumes ("25.26m SCU")
     assert cpu.blank_index == 0
     assert len(cpu.word_classes) == 31 and "empty" in cpu.word_classes
 
 
 def test_output_shapes(cpu: OrtEngine) -> None:
-    assert cpu.digits(_batch(5)).shape == (64, 5, 13)
+    assert cpu.digits(_batch(5)).shape == (64, 5, 14)
     assert cpu.words(_batch(3)).shape == (3, 31)
 
 
