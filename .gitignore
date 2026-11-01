@@ -17,9 +17,10 @@ assets/*
 *.pth
 *.pt
 *.safetensors
-data/
-runs/
-out/
+# Root only: packages have their own data/ folders (scanlake_core/domain/data) that belong in git
+/data/
+/runs/
+/out/
 
 # Golden fixtures are committed on purpose; scratch captures are not
 snapshots/
