@@ -95,6 +95,31 @@ def test_new_optional_column_flows_through(
     assert _read(scans.data).to_pylist()[0]["ship"] == "mole"
 
 
+def test_decimal_mass_is_written_as_double_only_when_needed(
+    format_json: dict[str, Any], profiles: dict[str, HudProfile]
+) -> None:
+    data = copy.deepcopy(format_json)
+    mass = next(c for c in data["files"]["scans"]["columns"] if c["name"] == "mass")
+    mass["type"] = ["INT32", "DOUBLE"]  # deposits under 1 SCU show masses like 12.34
+    fmt = parse_format(data)
+    cov = coverage(fmt, slot_layout(profiles["mole"]))
+
+    def scans(*captures: Capture) -> bytes:
+        batch = build_batch(fmt, cov, list(captures), IDENTITY, ROW_COLUMNS, session_id="s",
+                            batch_number=1)  # fmt: skip
+        return next(f for f in batch if f.kind == "scans").data
+
+    whole = scans(_capture())
+    assert column_types(whole)["mass"] == "INT32"  # what older clients write as well
+    small = _capture()
+    small.capture_id = "c-2"
+    small.scan["mass"] = FieldValue.from_ocr("12.34", 0.97)
+    small.scan["volume"] = FieldValue.from_ocr("0.02526", 0.97)
+    mixed = scans(_capture(), small)
+    assert column_types(mixed)["mass"] == "DOUBLE"
+    assert [r["mass"] for r in _read(mixed).to_pylist()] == [11826.0, 12.34]
+
+
 def test_column_types_detects_int64() -> None:
     """pandas writes INT64 by default; the Store rejects that for INT32 columns."""
     sink = io.BytesIO()

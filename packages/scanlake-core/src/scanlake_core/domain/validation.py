@@ -103,6 +103,15 @@ def validate(
                 "mass",
             )
         )
+    if "." in capture.value("mass") and volume >= 1:
+        issues.append(
+            Issue(
+                f"Mass ({mass:g}) has decimals, which the HUD only shows for deposits under"
+                " 1 SCU (volume in mSCU)",
+                SCANS,
+                "mass",
+            )
+        )
 
     deposit = capture.value("deposit")
     if cluster_deposit and deposit and deposit != cluster_deposit:

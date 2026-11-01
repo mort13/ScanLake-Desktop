@@ -67,6 +67,11 @@ def test_softmax_rows_sum_to_one() -> None:
         ("volume", "25.266", None),  # 3 decimals only below 1 SCU
         ("volume", "25.26%", None),
         ("mass", "12m", None),  # only volumes come in milli
+        ("mass", "12.34", "12.34"),  # mSCU deposits show decimal masses
+        ("mass", "11826", "11826"),
+        ("mass", "118.2", "118.2"),
+        ("mass", "1182.6", None),  # decimals only on small masses: a misread dot
+        ("mass", "0", None),
         ("amount", "42.09%", "42.09"),
         ("amount", "7.5", "7.50"),
         ("amount", "142.00", None),
@@ -178,6 +183,15 @@ def test_mass_volume_and_cluster_deposit() -> None:
     msgs = _messages(capture, cluster_deposit="Iron")
     assert any("at least 100× volume" in m for m in msgs)
     assert any('Cluster deposit must be "Iron"' in m for m in msgs)
+
+
+def test_decimal_mass_only_for_deposits_under_one_scu() -> None:
+    milli = _capture([("Quartz", "100.00", "1")], mass="12.34", volume="0.02526")
+    assert not any("decimals" in m for m in _messages(milli))
+    big = _capture([("Quartz", "100.00", "1")], mass="118.26", volume="1.10")
+    assert any("decimals" in m for m in _messages(big))
+    whole = _capture([("Quartz", "100.00", "1")], mass="11826", volume="49.27")
+    assert not any("decimals" in m for m in _messages(whole))
 
 
 def test_required_and_invalid_values() -> None:

@@ -18,7 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from scanlake_core.domain.capture import Capture, Identity
-from scanlake_core.domain.rows import build_rows
+from scanlake_core.domain.rows import build_rows, write_type
 from scanlake_core.format import Coverage, FileSpec, ParquetFormat, validate_columns
 
 _ARROW_TYPES: dict[str, pa.DataType] = {
@@ -97,10 +97,12 @@ def _type_name(col: Any) -> str:
 
 
 def table_for(spec: FileSpec, columns: Sequence[str], rows: list[dict[str, Any]]) -> pa.Table:
-    fields = [pa.field(name, arrow_type(spec.column(name).type)) for name in columns]  # type: ignore[union-attr]
-    schema = pa.schema(fields)
     data = {name: [row[name] for row in rows] for name in columns}
-    return pa.Table.from_pydict(data, schema=schema)
+    fields = [
+        pa.field(name, arrow_type(write_type(spec.column(name), data[name])))  # type: ignore[arg-type]
+        for name in columns
+    ]
+    return pa.Table.from_pydict(data, schema=pa.schema(fields))
 
 
 def to_parquet_bytes(table: pa.Table) -> bytes:

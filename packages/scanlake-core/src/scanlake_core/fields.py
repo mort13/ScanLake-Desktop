@@ -87,7 +87,9 @@ def _specs() -> dict[str, FieldSpec]:
     return {
         "deposit": FieldSpec("deposit", "word", vocabulary=t.deposits),
         "type": FieldSpec("type", "word", vocabulary=t.materials),
-        "mass": FieldSpec("mass", "int", re.compile(r"\d{1,7}"), minimum=1),
+        # Whole numbers, except deposits under 1 SCU (mSCU), which show e.g. "12.34";
+        # validation refuses a decimal mass with a volume of 1 SCU or more
+        "mass": FieldSpec("mass", "decimal", re.compile(r"\d{1,7}|\d{1,3}\.\d{1,2}"), minimum=0.01),
         "resistance": FieldSpec("resistance", "int", re.compile(r"\d{1,3}"), 0, 100),
         "instability": FieldSpec("instability", "decimal", re.compile(r"\d{1,4}(\.\d{1,2})?"), 0),
         # The HUD shows SCU with 2 decimals; up to 5 only below 1 SCU, which is what a converted

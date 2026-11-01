@@ -24,13 +24,20 @@ class CoercionError(ValueError):
 
 
 def coerce(text: str, column: ColumnSpec) -> Value:
-    """Casts stored text to the Python value for the column's (first) type."""
+    """Casts stored text to the Python value for the column's (first) type.
+
+    A decimal in an integer column that also allows a float type (mass: INT32 or DOUBLE) stays
+    a float; `write_type` then writes that batch's column as the float type.
+    """
     if text == "":
         return None
     kind = column.type
     try:
         if kind in INTEGER_TYPES:
-            return int(float(text.replace(",", ".")))
+            number = float(text.replace(",", "."))
+            if not number.is_integer() and any(t in FLOAT_TYPES for t in column.types):
+                return number
+            return round(number)  # the format has no float type for it: the nearest integer
         if kind in FLOAT_TYPES:
             return float(text.replace(",", "."))
     except ValueError as err:
@@ -38,6 +45,14 @@ def coerce(text: str, column: ColumnSpec) -> Value:
     if kind == "BOOLEAN":
         return text.strip().lower() in ("1", "true", "yes")
     return text
+
+
+def write_type(column: ColumnSpec, values: Iterable[Value]) -> str:
+    """The type to write a batch's column as: the first listed one, unless the batch holds a
+    decimal that only a later-listed float type can store."""
+    if any(isinstance(v, float) and not v.is_integer() for v in values):
+        return next((t for t in column.types if t in FLOAT_TYPES), column.type)
+    return column.type
 
 
 _SCAN_CONTEXT: dict[str, Callable[[Capture, Identity], str]] = {
