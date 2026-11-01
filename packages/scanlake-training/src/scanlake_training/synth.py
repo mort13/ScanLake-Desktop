@@ -1,8 +1,9 @@
 """Synthetic training data (ported from Rock Capture CNN's generate_synth_*.py).
 
-Strips: digit glyphs composited side by side on HUD background crops, in the four formats the HUD
-shows (12.34, 56%, 123456, 12.34%). Words: a resource/deposit name template (sometimes followed
-by "ore"/"raw") on a background crop; the `empty` class is background only.
+Strips: digit glyphs composited side by side on HUD background crops, in the formats the HUD
+shows (12.34, 56%, 123456, 12.34%, and 25.26m for volumes under 1 SCU). Words: a resource/deposit
+name template (sometimes followed by "ore"/"raw") on a background crop; the `empty` class is
+background only.
 
 The glyphs and templates in `resources/` were cut from Rock Capture CNN captures, which swapped
 the red and blue channels; that only shifts the grayscale slightly and is kept for parity.
@@ -23,7 +24,14 @@ import numpy as np
 from scanlake_core.preprocess import Gray
 
 STRIP_H = 32
-GLYPH_FILES = {**{str(d): f"{d}.png" for d in range(10)}, ".": "dot.png", "%": "percent.png"}
+GLYPH_FILES = {
+    **{str(d): f"{d}.png" for d in range(10)},
+    ".": "dot.png",
+    "%": "percent.png",
+    "m": "m.png",
+}
+LOWERCASE = frozenset("m")  # x-height letters: scaled to the digits, on their baseline
+X_HEIGHT = 8 / 11  # the "m" vs the digits' height, measured on the HUD ("25.26m SCU")
 
 
 def resource_dir() -> Path:
@@ -49,6 +57,30 @@ def _bgra(image: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(image, cv2.COLOR_GRAY2BGRA)
     if image.shape[2] == 3:
         return cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+    return image
+
+
+def load_glyph(path: Path) -> np.ndarray:
+    """A glyph as white BGRA with its shape in alpha, cropped to the ink.
+
+    Glyphs with a soft alpha (the original ones) are used as they are. A glyph that is just a
+    rectangle cut from a screenshot (alpha only 0/255, background included, possibly on a
+    larger transparent canvas) gets its alpha from the brightness above that background.
+    """
+    image = _bgra(_read(path))
+    alpha = image[:, :, 3]
+    if set(np.unique(alpha).tolist()) <= {0, 255}:
+        ys, xs = np.nonzero(alpha)
+        box = image[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
+        gray = cv2.cvtColor(box[:, :, :3], cv2.COLOR_BGR2GRAY).astype(np.float32)
+        background, peak = float(np.percentile(gray, 20)), float(gray.max())
+        soft = np.clip((gray - background) / max(peak - background, 1.0), 0, 1) * 255
+        rows = np.nonzero(soft.max(axis=1) >= 0.35 * 255)[0]
+        cols = np.nonzero(soft.max(axis=0) >= 0.35 * 255)[0]
+        soft = soft[rows.min() : rows.max() + 1, cols.min() : cols.max() + 1]
+        image = np.zeros((*soft.shape, 4), np.uint8)
+        image[:, :, :3] = 255
+        image[:, :, 3] = soft.round().astype(np.uint8)
     return image
 
 
@@ -104,24 +136,47 @@ def _decimal_percent(rng: random.Random) -> str:
     return f"{rng.randint(0, 99)}.{rng.randint(0, 99):02d}%"
 
 
+def _milli(rng: random.Random) -> str:
+    return f"{rng.randint(0, 999)}.{rng.randint(0, 99):02d}m"
+
+
 STRIP_FORMATS: dict[str, Callable[[random.Random], str]] = {
     "decimal": _decimal,
     "percent": _percent,
     "integer": _integer,
     "decimal_percent": _decimal_percent,
+    "milli": _milli,
 }
 
 
 def compose_strip(
     text: str, glyphs: dict[str, np.ndarray], background: np.ndarray, rng: random.Random
 ) -> Gray:
-    """Alpha-composites the glyphs of `text` on a background crop; the dot sits on the baseline."""
+    """Alpha-composites the glyphs of `text` on a background crop; the dot and lowercase letters
+    sit on the baseline."""
     glyph_h = max(4, int(STRIP_H * rng.uniform(0.65, 0.95)))
+    # The digit glyphs carry a faint row or two around the ink: measure the ink of "0"
+    digit = glyphs["0"]
+    ink = np.nonzero(digit[:, :, 3].max(axis=1) >= 0.35 * digit[:, :, 3].max())[0]
+    digit_scale = glyph_h / digit.shape[0]
+    baseline = (STRIP_H - glyph_h) // 2 + round((ink.max() + 1) * digit_scale)
+    x_height = (ink.max() - ink.min() + 1) * digit_scale * X_HEIGHT
+    # ... and are not fully opaque: letters cut from a frame get the digits' typical opacity
+    opacity = float(np.median([glyphs[str(d)][:, :, 3].max() for d in range(10)])) / 255
     placed: list[tuple[np.ndarray, int]] = []  # (glyph, top y)
     for ch in text:
         src = glyphs[ch]
         sh, sw = src.shape[:2]
-        if ch == ".":
+        if ch in LOWERCASE:  # tight glyphs (see load_glyph): their height is the x-height
+            factor = x_height / sh
+            img = cv2.resize(
+                src,
+                (max(1, round(sw * factor)), max(1, round(sh * factor))),
+                interpolation=cv2.INTER_AREA,
+            )
+            img[:, :, 3] = (img[:, :, 3] * opacity).round().astype(np.uint8)
+            top = baseline - img.shape[0]
+        elif ch == ".":
             dot_h = max(2, round(glyph_h * 0.4))
             img = cv2.resize(
                 src, (max(1, round(sw * dot_h / sh)), dot_h), interpolation=cv2.INTER_AREA
@@ -156,7 +211,7 @@ def generate_strips(
     """Writes `per_format` strips per format to `out` as `<label>_<n>.png`; returns the count."""
     root = root or resource_dir()
     rng = random.Random(seed)
-    glyphs = {ch: _bgra(_read(root / "glyphs" / name)) for ch, name in GLYPH_FILES.items()}
+    glyphs = {ch: load_glyph(root / "glyphs" / name) for ch, name in GLYPH_FILES.items()}
     backgrounds = load_backgrounds(root)
     out.mkdir(parents=True, exist_ok=True)
     start = _next_index(out)

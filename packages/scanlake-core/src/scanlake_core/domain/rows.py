@@ -61,7 +61,8 @@ def _material_volume(capture: Capture, row: Row) -> float | None:
     volume, amount = capture.value("volume"), row.get("amount")
     if not volume or amount is None or amount.empty:
         return None
-    return round(float(volume) * float(amount.text) / 100, 2)
+    # 5 places, not 2: deposits under 1 SCU (milli-SCU on the HUD) would round to 0.01 or 0
+    return round(float(volume) * float(amount.text) / 100, 5)
 
 
 def _min_confidence(row: Row) -> float:

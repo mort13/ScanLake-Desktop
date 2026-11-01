@@ -21,7 +21,12 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch import nn
 
-from scanlake_models.digit_crnn import BLANK_IDX, CHAR_CLASSES, TIME_STEPS, DigitCRNN
+from scanlake_models.digit_crnn import (
+    BLANK_IDX,
+    LEGACY_CHAR_CLASSES,
+    TIME_STEPS,
+    DigitCRNN,
+)
 from scanlake_models.word_cnn import WordCNN
 
 Kind = Literal["digit", "word"]
@@ -29,7 +34,8 @@ Kind = Literal["digit", "word"]
 
 def build(kind: Kind, meta: dict[str, Any]) -> nn.Module:
     if kind == "digit":
-        return DigitCRNN(num_classes=int(meta.get("numClasses", len(CHAR_CLASSES) + 1)))
+        chars = str(meta.get("charClasses", LEGACY_CHAR_CLASSES))
+        return DigitCRNN(num_classes=int(meta.get("numClasses", len(chars) + 1)))
     return WordCNN(num_classes=int(meta.get("numClasses", len(meta["wordClasses"]))))
 
 
@@ -78,7 +84,7 @@ def read_legacy(path: Path) -> tuple[Kind, dict[str, torch.Tensor], dict[str, An
         meta: dict[str, Any] = {"wordClasses": classes, "numClasses": len(classes)}
         kind: Kind = "word"
     else:
-        chars = raw.get("char_classes", CHAR_CLASSES)
+        chars = raw.get("char_classes", LEGACY_CHAR_CLASSES)
         meta = {
             "modelType": "crnn",
             "charClasses": chars,

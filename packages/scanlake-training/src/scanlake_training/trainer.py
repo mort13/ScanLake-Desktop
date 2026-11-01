@@ -64,7 +64,9 @@ def train(
     config: TrainConfig | None = None,
     report: Report = lambda event: None,
     cancelled: Callable[[], bool] = lambda: False,
+    init: Path | None = None,
 ) -> TrainResult:
+    """Trains `task` (from scratch, or from the checkpoint at `init`) and keeps the best epoch."""
     config = config or TrainConfig()
     torch.manual_seed(config.seed)
     device = pick_device(config.device)
@@ -79,7 +81,10 @@ def train(
     train_loader = DataLoader(cast(Dataset[Any], train_set), shuffle=True, **loader_args)
     val_loader = DataLoader(cast(Dataset[Any], val_set), shuffle=False, **loader_args)
 
-    model = task.model().to(device)
+    model = task.model()
+    if init is not None:
+        task.init_from(model, init)
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     scaler = torch.amp.GradScaler("cuda", enabled=cuda)
     report(

@@ -57,6 +57,16 @@ def test_softmax_rows_sum_to_one() -> None:
         ("resistance", "120", None),
         ("instability", "4.58", "4.58"),
         ("volume", "42,1", "42.1"),
+        ("volume", "25.26m", "0.02526"),  # milli-SCU on the HUD, stored in SCU
+        ("volume", "0.02526", "0.02526"),  # ... and stays valid when re-read or typed
+        ("volume", "313.40m", "0.3134"),
+        ("volume", "7m", "0.007"),
+        ("volume", "1234.00m", None),  # the HUD shows SCU from 1000m on
+        ("volume", "12.345m", None),
+        ("volume", "25.266%", None),  # how models without "m" read 25.26m
+        ("volume", "25.266", None),  # 3 decimals only below 1 SCU
+        ("volume", "25.26%", None),
+        ("mass", "12m", None),  # only volumes come in milli
         ("amount", "42.09%", "42.09"),
         ("amount", "7.5", "7.50"),
         ("amount", "142.00", None),

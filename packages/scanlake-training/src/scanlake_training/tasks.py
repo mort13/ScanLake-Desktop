@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -12,6 +13,7 @@ from torch.utils.data import DataLoader
 
 from scanlake_core.decode import ctc_greedy
 from scanlake_core.preprocess import PREPROCESS_VERSION
+from scanlake_models import checkpoint
 from scanlake_models.digit_crnn import BLANK_IDX, CHAR_CLASSES, TIME_STEPS, DigitCRNN
 from scanlake_models.word_cnn import WordCNN
 from scanlake_training.data import collate_ctc
@@ -24,6 +26,7 @@ DIGIT_FORMATS = {
     "decimal": r"^\d{1,3}\.\d{2}$",
     "percent": r"^\d{1,2}%$",
     "integer": r"^\d{1,6}$",
+    "milli": r"^\d{1,3}\.\d{2}m$",  # small volumes: "25.26m SCU" = 0.02526 SCU
 }
 
 
@@ -35,6 +38,10 @@ class Task(Protocol):
         ...
 
     def model(self) -> nn.Module: ...
+    def init_from(self, model: nn.Module, stem: Path) -> None:
+        """Starts `model` from the weights of the checkpoint at `stem` (fine-tuning)."""
+        ...
+
     def loss(self, model: nn.Module, batch: Batch, device: torch.device) -> Tensor: ...
     def evaluate(
         self, model: nn.Module, loader: DataLoader[Any], device: torch.device
@@ -59,6 +66,22 @@ class CrnnTask:
 
     def model(self) -> nn.Module:
         return DigitCRNN(num_classes=len(self.alphabet) + 1)
+
+    def init_from(self, model: nn.Module, stem: Path) -> None:
+        """The checkpoint's alphabet may be shorter (e.g. before "m"): its classes keep their
+        weights, the characters added after them start from the new model's random ones."""
+        old, meta = checkpoint.load(stem)
+        old_alphabet = str(meta["charClasses"])
+        if not self.alphabet.startswith(old_alphabet):
+            raise ValueError(f"{stem}: {old_alphabet!r} does not start {self.alphabet!r}")
+        state = old.state_dict()
+        fresh = model.state_dict()
+        kept = len(old_alphabet) + 1  # + blank
+        for key in ("fc.weight", "fc.bias"):
+            widened = fresh[key].clone()
+            widened[:kept] = state[key]
+            state[key] = widened
+        model.load_state_dict(state)
 
     def loss(self, model: nn.Module, batch: Batch, device: torch.device) -> Tensor:
         images, targets, input_lengths, target_lengths = (t.to(device) for t in batch)
@@ -110,6 +133,12 @@ class WordTask:
 
     def model(self) -> nn.Module:
         return WordCNN(num_classes=len(self.classes))
+
+    def init_from(self, model: nn.Module, stem: Path) -> None:
+        old, meta = checkpoint.load(stem)
+        if list(meta["wordClasses"]) != self.classes:
+            raise ValueError(f"{stem} was trained on other word classes")
+        model.load_state_dict(old.state_dict())
 
     def loss(self, model: nn.Module, batch: Batch, device: torch.device) -> Tensor:
         images, labels = batch

@@ -43,6 +43,9 @@ def test_hud_text_and_word_class() -> None:
     assert hud_text("amount", "42.10", "42.09%") == "42.10%"  # corrected: rebuilt with %
     assert hud_text("mass", "11826", "11828") == "11826"
     assert hud_text("instability", "4.58", "") == "4.58"
+    assert hud_text("volume", "0.02526", "25.26m") == "25.26m"  # milli, read right
+    assert hud_text("volume", "0.02526", "25.266%") == "25.26m"  # corrected: rebuilt with m
+    assert hud_text("volume", "49.27", "49.2") == "49.27"
     assert word_class("Aluminum", WORD_CLASSES) == "aluminium"  # deposit spelling
     assert word_class("Inert Materials", WORD_CLASSES) == "inert_materials"
     assert word_class("", WORD_CLASSES) == "empty"

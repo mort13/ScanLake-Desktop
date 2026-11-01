@@ -69,7 +69,7 @@ def test_v1_batch(fmt: ParquetFormat, profiles: dict[str, HudProfile]) -> None:
 
     comps = _read(files["compositions"].data).to_pylist()
     assert [c["mat_index"] for c in comps] == [0, 1]  # the empty slot is not written
-    assert comps[0]["material_volume"] == round(42.15 * 58.40 / 100, 2)
+    assert comps[0]["material_volume"] == round(42.15 * 58.40 / 100, 5)
     assert comps[1]["min_confidence"] == pytest.approx(0.8)
 
     conf = _read(files["confidences"].data).to_pylist()[0]

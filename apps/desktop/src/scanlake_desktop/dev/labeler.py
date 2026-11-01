@@ -28,7 +28,7 @@ from scanlake_desktop.capture.source import read_image
 from scanlake_desktop.dev.debug_window import to_pixmap
 
 STRIPS, WORDS = "strips", "words"
-DIGITS = set("0123456789.%")
+DIGITS = set("0123456789.%m")
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class LabelQueue:
     def accept(self, item: Item, label: str) -> Path:
         if self.kind == STRIPS:
             if not label or not set(label) <= DIGITS:
-                raise ValueError(f"{label!r} is not a digit label (0-9 . %)")
+                raise ValueError(f"{label!r} is not a digit label (0-9 . % m)")
             tail = item.path.stem.rpartition("_")[2]
             target = self.root / "real" / STRIPS / f"{label}_{tail}.png"
         else:

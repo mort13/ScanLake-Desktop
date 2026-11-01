@@ -70,12 +70,15 @@ def _train(args: argparse.Namespace) -> int:
     from scanlake_training.tasks import CrnnTask, WordTask
     from scanlake_training.trainer import TrainConfig, train
 
-    folder = Path(args.data)
+    folders = [Path(d) for d in args.data]
+    folder = folders[0]
     if args.task == "crnn":
-        samples = data.strip_samples(folder)
+        samples = [s for f in folders for s in data.strip_samples(f)]
         task: Any = CrnnTask()
         name = "digit_crnn"
     else:
+        if len(folders) > 1:
+            raise SystemExit("word training takes one --data folder (one sub-folder per class)")
         classes = data.word_classes(folder)
         if len(classes) < 2:
             raise SystemExit(f"need at least 2 class folders in {folder}")
@@ -119,7 +122,8 @@ def _train(args: argparse.Namespace) -> int:
         patience=args.patience,
         seed=args.seed,
     )
-    result = train(task, train_set, val_set, out, config, _print_event(args.json))
+    init = Path(args.init) if args.init else None
+    result = train(task, train_set, val_set, out, config, _print_event(args.json), init=init)
     return 0 if result.best_accuracy >= 0 else 1
 
 
@@ -180,7 +184,11 @@ def main(argv: list[str] | None = None) -> int:
 
     t = sub.add_parser("train", help="train a model")
     t.add_argument("task", choices=["crnn", "word"])
-    t.add_argument("--data", required=True, help="training folder")
+    t.add_argument("--data", required=True, nargs="+", help="training folder(s)")
+    t.add_argument(
+        "--init",
+        help="start from this checkpoint (path without extension), e.g. to add a character",
+    )
     t.add_argument("--val-data", help="separate validation folder (e.g. real captures)")
     t.add_argument("--val-fraction", type=float, default=0.15)
     t.add_argument("--out", help="output path without extension (default: runs/<task>-<time>/...)")

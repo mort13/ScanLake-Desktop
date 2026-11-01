@@ -93,6 +93,17 @@ uv run scanlake-train checkpoint convert "<Rock Capture CNN>/data/models/crnn_mo
 Without `--val-data`, a fixed 15 % of the training folder (by file name hash) validates. The
 exported ONNX files keep the web app's names and metadata, so they work in ScanLake Capture too.
 
+`--data` takes several folders, and `--init <checkpoint>` fine-tunes an existing model instead of
+starting from scratch, even when the alphabet grew: that is how the digit model learned the "m"
+of volumes under 1 SCU ("25.26m SCU", stored as 0.02526 SCU):
+
+```bash
+uv run scanlake-train train crnn --data <old strips> data/strips --init assets/models/digit_crnn --lr 0.0003 --patience 6
+```
+
+New glyphs for synthetic strips can be cut straight from a frame (a rectangle, background
+included) into `packages/scanlake-training/src/scanlake_training/resources/glyphs/`.
+
 ## Asset updates
 
 Players get new profiles, anchors and models without a new app: the app reads

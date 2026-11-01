@@ -1,7 +1,9 @@
 """DigitCRNN: CNN + BiLSTM + CTC for digit strips (from Rock Capture CNN, state_dict compatible).
 
-Input (N, 1, 32, 256) grayscale in 0..1 -> output (T=64, N, 13) log-probabilities.
-CTC alphabet: blank = 0, then "0123456789.%" at indices 1..12.
+Input (N, 1, 32, 256) grayscale in 0..1 -> output (T=64, N, 14) log-probabilities.
+CTC alphabet: blank = 0, then "0123456789.%m" at indices 1..13. The "m" (milli, as in
+"25.26m SCU") was added later: models trained before it have 13 outputs and LEGACY_CHAR_CLASSES,
+which their metadata states, so they keep working.
 """
 
 from __future__ import annotations
@@ -13,7 +15,8 @@ from torch import nn
 INPUT_H, INPUT_W = 32, 256
 TIME_STEPS = INPUT_W // 4  # two width halvings in the backbone
 BLANK_IDX = 0
-CHAR_CLASSES = "0123456789.%"
+LEGACY_CHAR_CLASSES = "0123456789.%"  # Rock Capture CNN and the first ScanLake models
+CHAR_CLASSES = LEGACY_CHAR_CLASSES + "m"
 NUM_CLASSES = len(CHAR_CLASSES) + 1
 
 

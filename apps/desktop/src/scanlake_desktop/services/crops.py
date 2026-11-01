@@ -10,6 +10,7 @@ The crops are the exact images the models saw (filtered for digits, raw for word
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 
 from scanlake_core.domain.capture import Capture, FieldValue
@@ -20,14 +21,18 @@ from scanlake_core.recognition import RoiReading
 from scanlake_core.schema_map import SlotLayout
 from scanlake_desktop.capture.source import write_image
 
-DIGIT_ALPHABET = set("0123456789.%")
+DIGIT_ALPHABET = set("0123456789.%m")
 PERCENT_COLUMNS = {"amount", "resistance"}
 
 
 def hud_text(column: str, value: str, raw_text: str) -> str:
     """The digits as the HUD shows them: the model's text if it was right, else rebuilt."""
-    if raw_text and field_spec(column).normalize(raw_text) == value:
+    spec = field_spec(column)
+    if raw_text and spec.normalize(raw_text) == value:
         return raw_text
+    # A milli value: the model saw the "m", or it has more decimals than the HUD shows in SCU
+    if spec.milli and value and (raw_text.endswith("m") or len(value.partition(".")[2]) > 2):
+        return f"{Decimal(value) * 1000:.2f}m"
     return value + ("%" if column in PERCENT_COLUMNS or raw_text.endswith("%") else "")
 
 
