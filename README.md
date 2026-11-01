@@ -6,7 +6,11 @@ writes, in the format published by [ScanLake Format](https://github.com/mort13/S
 but runs the CNNs natively (ONNX Runtime with DirectML or CPU, or PyTorch), batches all ROIs of a
 frame, and votes over several frames before you stage a scan.
 
-- **Standard mode** (players): capture and upload.
+- **Standard mode** (players): capture and upload. A session's scans upload when it closes (or
+  with Upload now). While the HUD is found, the values being read are drawn over the game
+  beside the scan panel (Settings → Capture; needs borderless window mode). That overlay is
+  kept out of screen captures so it cannot disturb the reading, which also hides it from
+  screenshots and streams.
 - **Dev mode** (`--dev` or Settings → Advanced): profile/ROI editor, labelers, training, export.
 
 ## Layout

@@ -18,13 +18,13 @@ class SaveResult:
     issues: list[Issue] = field(default_factory=list)
     duplicate: bool = False
     capture_id: str = ""
-    queued_batch: int | None = None
 
 
 @dataclass
 class SessionService:
+    """Saved scans upload when their session closes (or on "Upload now"), never mid-session."""
+
     db: Database
-    batch_size: int = 50
     session: SessionRow | None = None
     clusters: list[str] = field(default_factory=list)
     cluster_index: int = -1
@@ -140,9 +140,8 @@ class SessionService:
         if editing is None and is_duplicate(capture, self.captures(), layout.row_columns):
             return SaveResult(False, duplicate=True)
         self.db.save_capture(capture, models)
-        queued = self._maybe_queue_batch()
         self.refresh()
-        return SaveResult(True, capture_id=capture.capture_id, queued_batch=queued)
+        return SaveResult(True, capture_id=capture.capture_id)
 
     def delete(self, capture_id: str) -> bool:
         """Deletes a capture; True when an uploaded copy stays on the server."""
@@ -155,13 +154,6 @@ class SessionService:
             return None
         sid = self.session.session_id
         return self.db.create_batch(sid, self.db.unbatched(sid), is_final=False)
-
-    def _maybe_queue_batch(self) -> int | None:
-        assert self.session is not None
-        pending = self.db.unbatched(self.session.session_id)
-        if len(pending) >= self.batch_size:
-            return self.db.create_batch(self.session.session_id, pending, is_final=False)
-        return None
 
     def _draft(
         self, scan: dict[str, FieldValue], rows: list[Row], editing: Capture | None, ship: str

@@ -25,9 +25,10 @@ from scanlake_desktop.capture.source import Monitor, list_monitors
 from scanlake_desktop.db.database import Database
 from scanlake_desktop.hotkeys import HotkeyService
 from scanlake_desktop.services.session_service import SessionService
-from scanlake_desktop.services.staging import draft_values, needs_attention
+from scanlake_desktop.services.staging import draft_values, needs_attention, staged_by_roi
 from scanlake_desktop.settings import Endpoints, Settings, save_settings
 from scanlake_desktop.tasks import run_in_background
+from scanlake_desktop.ui.game_overlay import GameOverlay, Staged
 from scanlake_desktop.ui.main_window import MainWindow
 from scanlake_desktop.ui.settings_dialog import SettingsDialog
 from scanlake_desktop.ui.style import ERROR
@@ -81,11 +82,12 @@ class DesktopApp(QObject):
             settings.ship = next(iter(self.ships))
         self.monitors = list_monitors() or [Monitor(1, 0, 0, 2560, 1440)]
         self.db = Database(paths.database_file())
-        self.sessions = SessionService(self.db, batch_size=settings.batch_size)
+        self.sessions = SessionService(self.db)
         self.last_state: LiveState | None = None
         self.staged = False
         self.editing = None
         self.staged_readings: dict[str, RoiReading] = {}  # crops of what was staged
+        self.staged_region = Rect(0, 0, 0, 0)  # the capture region when it was staged
         self.debug_window = None
         self.profile_editor = None
 
@@ -97,6 +99,9 @@ class DesktopApp(QObject):
         ships = [(s.key, s.label) for s in self.ships.values()]
         self.window = MainWindow(ships, self.version)
         self._connect_window()
+        self.overlay = GameOverlay()
+        self.overlay.set_monitor(self.monitor)
+        self.overlay.set_enabled(settings.game_overlay)
 
         self.stopped = False
         self.worker = PipelineWorker()
@@ -112,7 +117,6 @@ class DesktopApp(QObject):
             self.formats,
             self.identity,
             lambda: Path(self.settings.export_dir) if self.settings.export_dir else None,
-            lambda: self.settings.auto_upload,
         )
         self.uploader.changed.connect(self._show_upload_summary)
         self.uploader.finished_batch.connect(self._batch_finished)
@@ -335,18 +339,18 @@ class DesktopApp(QObject):
         self.last_state = state
         if state.ship == self.settings.ship:
             self.window.live.update_state(state)
+            self.overlay.update_state(state)
         if self.debug_window is not None:
             self.debug_window.update_state(state)
 
     # -- actions --------------------------------------------------------------
 
     def stage(self) -> None:
-        if self.staged and self.editing is None:
-            self.clear()
-            return
+        """Stages the current values; again while staged: replaces them (Clear unstages)."""
+        restage = self.staged and self.editing is None
         state = self.last_state
         if state is None or not state.locked:
-            self._fail("The scan HUD is not visible")
+            self._fail("The scan HUD is not visible")  # what is staged stays
             return
         scan, rows = draft_values(self.layout, state.votes)
         votes_by_cell: dict[tuple[int, str], object] = {}
@@ -365,12 +369,14 @@ class DesktopApp(QObject):
         }
         unstable = sum(1 for v in state.votes.values() if not v.stable)
         settling = f" · {unstable} value{'s' if unstable > 1 else ''} still settling"
-        title = "Staged scan" + (settling if unstable else "")
+        title = ("Restaged scan" if restage else "Staged scan") + (settling if unstable else "")
         self.editing = None
         self.staged_readings = dict(state.readings)
+        self.staged_region = state.region
         self.window.form.load(scan, rows, title, attention)
         self.staged = True
         self._revalidate()
+        self.overlay.flash(title, "warn" if unstable else "info")
         self._beep("stage")
 
     def save(self) -> None:
@@ -392,16 +398,16 @@ class DesktopApp(QObject):
             return
         if not result.saved:
             self.window.form.show_issues(result.issues)
+            self._show_staged()  # the overlay marks the same values
             self._fail(result.issues[0].message if result.issues else "Cannot save")
             return
         self._beep("ok")
         self.window.flash("Saved" + (" (edited)" if self.editing else ""))
+        self.overlay.flash(f"Saved · {len(self.sessions.captures())} scans this session", "ok")
         self._collect_crops(result.capture_id)
         deposit = scan.get("deposit")
         self.clear(keep_deposit=deposit.text if deposit else "")
         self._refresh_session()
-        if result.queued_batch:
-            self.uploader.wake()
 
     def _collect_crops(self, capture_id: str) -> None:
         """Dev mode: keep the staged ROI crops, labelled with the saved values, for training."""
@@ -424,16 +430,34 @@ class DesktopApp(QObject):
         self.editing = None
         self.staged_readings = {}
         self.window.form.clear({"deposit": keep_deposit} if keep_deposit else None)
+        self.overlay.set_staged(None)
 
     def _revalidate(self) -> None:
         if not self.staged:
             return
         scan, rows = self.window.form.values()
-        if self.sessions.session is None:
-            self.window.form.show_issues([])
-            return
-        issues = self.sessions.check(scan, rows, self.layout, self.cov, self.editing)
+        issues = (
+            self.sessions.check(scan, rows, self.layout, self.cov, self.editing)
+            if self.sessions.session is not None
+            else []
+        )
         self.window.form.show_issues(issues)
+        self._show_staged()
+
+    def _show_staged(self) -> None:
+        """The overlay shows the staged values (with any edits) where they were read."""
+        if not self.staged or self.editing is not None or not self.staged_readings:
+            self.overlay.set_staged(None)  # an old scan being edited was not read here
+            return
+        keys = self.settings.hotkeys
+        self.overlay.set_staged(
+            Staged(
+                values=staged_by_roi(self.layout, self.window.form.cell_states()),
+                readings=self.staged_readings,
+                region=self.staged_region,
+                status=f"Staged · {keys.save.upper()} saves · {keys.stage.upper()} restages",
+            )
+        )
 
     def new_cluster(self) -> None:
         if self.sessions.session is None:
@@ -443,6 +467,7 @@ class DesktopApp(QObject):
         self._refresh_session()
         self._beep("stage")
         self.window.flash(f"New rock #{self.sessions.cluster_number}")
+        self.overlay.flash(f"New rock #{self.sessions.cluster_number}")
 
     def step_cluster(self, delta: int) -> None:
         self.sessions.step_cluster(delta)
@@ -513,10 +538,11 @@ class DesktopApp(QObject):
         torch_switch = new.backend.startswith("torch") != self.settings.backend.startswith("torch")
         self.settings = new
         save_settings(new)
-        self.sessions.batch_size = new.batch_size
         self.dev = new.dev_mode
         self.window.set_dev_mode(self.dev)
         self._bind_hotkeys()
+        self.overlay.set_monitor(self.monitor)
+        self.overlay.set_enabled(new.game_overlay)
         self.worker.configure(self._worker_config())
         if torch_switch:
             QMessageBox.information(
@@ -664,25 +690,28 @@ class DesktopApp(QObject):
         from scanlake_desktop.db.database import UploadSummary
 
         assert isinstance(summary, UploadSummary)
+        if self.stopped:
+            return
         parts = []
-        waiting = summary.pending_batches + summary.unbatched_captures
         if summary.failed_batches:
             parts.append(f"⚠ {summary.failed_batches} batch(es) rejected: {summary.last_error}")
         elif summary.pending_batches and summary.last_error:
             parts.append(f"Upload retrying: {summary.last_error}")
-        elif waiting:
-            parts.append(f"{summary.unbatched_captures} scans not uploaded yet")
+        elif summary.pending_batches:
+            parts.append("Uploading…")
+        elif summary.unbatched_captures:
+            parts.append(f"{summary.unbatched_captures} scans upload when the session closes")
         else:
             parts.append("All scans uploaded")
-        if not self.settings.auto_upload:
-            parts.append("auto upload off")
         self.window.upload_status.setText(" · ".join(parts))
 
     def _batch_finished(self, outcome: object) -> None:
-        self._refresh_session()
+        if not self.stopped:  # (the database is closed after stop)
+            self._refresh_session()
 
     def _fail(self, message: str) -> None:
         self.window.flash(message, 6000)
+        self.overlay.flash(message, "error")
         self._beep("error")
 
     def _beep(self, kind: str) -> None:
@@ -690,11 +719,12 @@ class DesktopApp(QObject):
             beep(kind)
 
     def stop(self) -> None:
-        # Live updates the worker queued before it stopped must not reach a closed window
+        # Updates the threads queued before they stopped must not reach a closed window or DB
         self.stopped = True
         self.hotkeys.stop()
         self.worker.stop()
         self.uploader.stop()
+        self.overlay.close()
         save_settings(self.settings)
         self.db.close()
 

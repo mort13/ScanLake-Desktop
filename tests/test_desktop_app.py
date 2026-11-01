@@ -71,7 +71,7 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
     frame_path = app_env / "replay" / "frame.png"
     write_image(frame_path, _hud_frame(profiles["mole"], engine))
 
-    settings = Settings(backend="ort-cpu", auto_upload=False, ship="mole", beep=False, fps=15)
+    settings = Settings(backend="ort-cpu", ship="mole", beep=False, fps=15)
     app = DesktopApp(settings, dev=True, replay=[frame_path])
     qtbot.addWidget(app.window)
     try:
@@ -94,13 +94,23 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         state = app.last_state
         assert scan["mass"].text == state.votes["mass"].text
         assert scan["mass"].source == "ocr" and scan["mass"].confidence
+        staged = app.overlay.staged  # the game overlay shows what is staged
+        assert staged is not None and staged.values["mass"] == (scan["mass"].text, "")
 
         # The synthetic amounts do not add up to 100 %: saving must be refused
         app.save()
         assert app.sessions.session is not None and app.sessions.captures() == []
+        assert app.overlay.staged is not None
+        assert {v[1] for v in app.overlay.staged.values.values()} >= {"error"}
+
+        # Pressing stage again takes the current values instead of unstaging
+        form = app.window.form
+        form._scan_widgets["mass"].setText("1")  # type: ignore[union-attr]
+        app.stage()
+        assert app.staged and form._title.text().startswith("Restaged scan")
+        assert form.values()[0]["mass"].text == app.last_state.votes["mass"].text
 
         # Fix the materials by hand and save
-        form = app.window.form
         values = {"type": ["Quartz", "Iron", "", "", ""], "amount": ["60.00", "40.00", "", "", ""],
                   "quality": ["500", "20", "", "", ""]}  # fmt: skip
         for r, widgets in enumerate(form._row_widgets):
@@ -120,6 +130,10 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         for column in ("resistance", "instability", "volume"):
             if not scan[column].text:
                 form._scan_widgets[column].setText("1")  # type: ignore[union-attr]
+        type_roi = next(s.roi for s in app.layout.rows[0] if s.column == "type")
+        assert app.overlay.staged is not None  # edits reach the overlay, marked as typed
+        typed = form.values()[1][0]["type"].text
+        assert app.overlay.staged.values[type_roi] == (typed, "manual")
 
         app.save()
         saved = app.sessions.captures()
@@ -129,7 +143,7 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         assert capture.rows[0]["type"].saved_confidence == 1.0
         assert capture.context["ship"] == "mole" and capture.context["system"] == "Stanton"
         assert app.window.scans.rowCount() == 1
-        assert not app.staged
+        assert not app.staged and app.overlay.staged is None
     finally:
         app.stop()
     assert os.listdir(app_env / "data")

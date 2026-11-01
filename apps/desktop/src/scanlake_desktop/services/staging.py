@@ -32,3 +32,18 @@ def needs_attention(value: FieldValue, vote: Vote | None) -> bool:
     if value.source != "ocr" or value.empty:
         return False
     return (value.confidence or 0.0) < LOW_CONFIDENCE or (vote is not None and not vote.stable)
+
+
+def staged_by_roi(
+    layout: SlotLayout, cells: Mapping[tuple[int, str], tuple[FieldValue, str]]
+) -> dict[str, tuple[str, str]]:
+    """The review form's cells ((row, column) -> value, highlight) back at the ROIs they came
+    from: roi -> (text, highlight), for the game overlay. Empty cells are left out."""
+    slots = [((-1, s.column), s.roi) for s in layout.scan]
+    slots += [((r, s.column), s.roi) for r, row in enumerate(layout.rows) for s in row]
+    out: dict[str, tuple[str, str]] = {}
+    for cell, roi in slots:
+        value, state = cells.get(cell, (FieldValue(), ""))
+        if not value.empty:
+            out[roi] = (value.text, state)
+    return out

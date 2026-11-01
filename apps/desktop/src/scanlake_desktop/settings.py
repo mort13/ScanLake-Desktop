@@ -51,6 +51,7 @@ class Settings(BaseModel):
     region_mode: Literal["auto", "manual"] = "auto"
     manual_region: Region | None = None
     fps: int = Field(default=10, ge=1, le=30)
+    game_overlay: bool = True  # the readings drawn over the game, next to each ROI
     # Recognition
     backend: str = "auto"  # auto | ort-cpu | ort-dml | torch-cpu | torch-cuda
     auto_backend: str | None = None  # what `auto` resolved to (benchmarked once)
@@ -62,9 +63,7 @@ class Settings(BaseModel):
     system: str = "Stanton"
     gravity_well: str = ""
     region: str = ""
-    # Upload
-    auto_upload: bool = True
-    batch_size: int = Field(default=50, ge=1, le=500)
+    # Upload (a session uploads when it closes; older files' auto_upload/batch_size are ignored)
     export_dir: str = ""
     # Modes
     dev_mode: bool = False

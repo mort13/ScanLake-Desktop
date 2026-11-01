@@ -50,8 +50,8 @@ def _values(
     return scan, rows
 
 
-def _service(db: Database, batch_size: int = 50) -> SessionService:
-    service = SessionService(db, batch_size=batch_size)
+def _service(db: Database) -> SessionService:
+    service = SessionService(db)
     service.start("Stanton", "Calliope", "", "mole")
     return service
 
@@ -91,17 +91,18 @@ def test_session_survives_restart(db: Database, layout: SlotLayout, fmt: Parquet
     assert restored.cluster_number == 2
 
 
-def test_batches_queue_at_batch_size_and_on_close(
+def test_batches_queue_only_on_upload_now_and_on_close(
     db: Database, layout: SlotLayout, fmt: ParquetFormat
 ) -> None:
     cov = coverage(fmt, layout)
-    service = _service(db, batch_size=2)
-    assert service.save(*_values("5000"), layout, cov, ship="mole").queued_batch is None
-    assert service.save(*_values("6000"), layout, cov, ship="mole").queued_batch == 1
+    service = _service(db)
+    for mass in range(5000, 5060):  # many scans: still nothing queued while the session runs
+        assert service.save(*_values(str(mass)), layout, cov, ship="mole").saved
+    assert db.due_batches() == []
+    assert service.queue_upload() == 1  # Upload now
     service.save(*_values("7000"), layout, cov, ship="mole")
     assert service.close() == 2
-    assert [b.batch_number for b in db.due_batches()] == [1, 2]
-    assert db.due_batches()[1].is_final
+    assert [(b.batch_number, b.is_final) for b in db.due_batches()] == [(1, False), (2, True)]
 
 
 def _uploader(db: Database, fmt: ParquetFormat, tmp_path: Path) -> Uploader:

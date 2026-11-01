@@ -30,7 +30,6 @@ class UploadWorker(QThread):
         formats: FormatHolder,
         identity: Callable[[], Identity],
         export_dir: Callable[[], Path | None],
-        enabled: Callable[[], bool],
     ) -> None:
         super().__init__()
         self._db_path = db_path
@@ -38,13 +37,12 @@ class UploadWorker(QThread):
         self._formats = formats
         self._identity = identity
         self._export_dir = export_dir
-        self._enabled = enabled
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._force = False
 
     def wake(self, force: bool = False) -> None:
-        """Check the queue now; `force` uploads even when automatic upload is off."""
+        """Check the queue now; `force` also retries batches the Store rejected."""
         self._force = self._force or force
         self._wake.set()
 
@@ -63,9 +61,8 @@ class UploadWorker(QThread):
                 force, self._force = self._force, False
                 if force:
                     db.retry_failed()
-                if self._enabled() or force:
-                    for outcome in uploader.run_due():
-                        self.finished_batch.emit(outcome)
+                for outcome in uploader.run_due():
+                    self.finished_batch.emit(outcome)
                 self.changed.emit(db.upload_summary())
                 self._wake.wait(POLL_S)
                 self._wake.clear()

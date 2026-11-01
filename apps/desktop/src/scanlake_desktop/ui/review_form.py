@@ -49,6 +49,7 @@ class ReviewForm(QWidget):
         self._row_widgets: list[dict[str, FieldWidget]] = []
         self._original: dict[tuple[int, str], FieldValue] = {}
         self._attention: set[tuple[int, str]] = set()
+        self._states: dict[tuple[int, str], str] = {}  # highlight per cell, as last validated
         self._layout_key: tuple[object, ...] = ()
 
         self._title = QLabel("Nothing staged")
@@ -188,12 +189,20 @@ class ReviewForm(QWidget):
             else:
                 state = ""
             set_state(widget, state)
+            self._states[(row, column)] = state
             original = self._original.get((row, column))
             if original is not None and original.confidence is not None and value.source == "ocr":
                 widget.setToolTip(f"OCR confidence {original.confidence:.0%}")
             else:
                 widget.setToolTip("")
         self._issues.setText("\n".join(f"• {i.message}" for i in issues))
+
+    def cell_states(self) -> dict[tuple[int, str], tuple[FieldValue, str]]:
+        """Each cell's (row, column) value and highlight: "error", "manual", "warn" or ""."""
+        return {
+            cell: (self._value(*cell, widget), self._states.get(cell, ""))
+            for cell, widget in self._all_widgets()
+        }
 
     def _all_widgets(self) -> list[tuple[tuple[int, str], FieldWidget]]:
         out: list[tuple[tuple[int, str], FieldWidget]] = [

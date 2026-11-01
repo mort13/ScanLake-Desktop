@@ -20,6 +20,15 @@ def _require_assets() -> None:
 
 
 @pytest.fixture(autouse=True)
+def offline_services(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only `network` tests reach production: an app under test uploads closed sessions."""
+    if request.node.get_closest_marker("network"):
+        return
+    for name in ("STORE", "AUTH", "GATEWAY"):
+        monkeypatch.setenv(f"SCANLAKE_{name}_URL", f"https://{name.lower()}.invalid")
+
+
+@pytest.fixture(autouse=True)
 def memory_keyring(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, str], str]:
     """Tests never touch the real credential store: it may hold the developer's real login."""
     store: dict[tuple[str, str], str] = {}

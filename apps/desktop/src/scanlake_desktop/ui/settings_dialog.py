@@ -127,12 +127,19 @@ class SettingsDialog(QDialog):
         self.fps = QSpinBox()
         self.fps.setRange(1, 30)
         self.fps.setValue(s.fps)
+        self.game_overlay = QCheckBox("Show the readings over the game, next to the scan panel")
+        self.game_overlay.setChecked(s.game_overlay)
+        self.game_overlay.setToolTip(
+            "Needs borderless window mode. Kept out of the screen capture, so it is also not "
+            "visible in screenshots or streams."
+        )
         form = QFormLayout()
         form.addRow("Monitor", self.monitor)
         form.addRow("Capture region", self.region_mode)
         form.addRow("", pick)
         form.addRow("", self.region_label)
         form.addRow("Frames per second", self.fps)
+        form.addRow(self.game_overlay)
         return _page(form)
 
     def _recognition_tab(self, backends: list[BackendInfo], active: str) -> QWidget:
@@ -182,11 +189,6 @@ class SettingsDialog(QDialog):
 
     def _upload_tab(self) -> QWidget:
         s = self._settings
-        self.auto_upload = QCheckBox("Upload automatically")
-        self.auto_upload.setChecked(s.auto_upload)
-        self.batch_size = QSpinBox()
-        self.batch_size.setRange(1, 500)
-        self.batch_size.setValue(s.batch_size)
         self.export_dir = QLineEdit(s.export_dir)
         self.export_dir.setPlaceholderText("(off)")
         browse = QPushButton("…")
@@ -195,11 +197,11 @@ class SettingsDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(self.export_dir)
         row.addWidget(browse)
+        hint = QLabel("A session's scans upload when you close it, or right away with Upload now.")
+        hint.setProperty("role", "hint")
+        hint.setWordWrap(True)
         form = QFormLayout()
-        form.addRow(self.auto_upload)
-        form.addRow(
-            "Upload every", _with_suffix(self.batch_size, "scans (and when a session closes)")
-        )
+        form.addRow(hint)
         form.addRow("Also save batches to", row)
         return _page(form)
 
@@ -270,6 +272,7 @@ class SettingsDialog(QDialog):
         s.region_mode = self.region_mode.currentData()
         s.manual_region = self._manual_region
         s.fps = self.fps.value()
+        s.game_overlay = self.game_overlay.isChecked()
         backend = str(self.backend.currentData())
         if backend != s.backend:
             s.auto_backend = None if backend == AUTO else s.auto_backend
@@ -280,8 +283,6 @@ class SettingsDialog(QDialog):
             save=self.key_save.key_name,
             new_cluster=self.key_cluster.key_name,
         )
-        s.auto_upload = self.auto_upload.isChecked()
-        s.batch_size = self.batch_size.value()
         s.export_dir = self.export_dir.text().strip()
         s.dev_mode = self.dev_mode.isChecked()
         s.beep = self.beep.isChecked()
@@ -293,13 +294,3 @@ def _page(form: QFormLayout) -> QWidget:
     page = QWidget()
     page.setLayout(form)
     return page
-
-
-def _with_suffix(widget: QWidget, text: str) -> QWidget:
-    holder = QWidget()
-    row = QHBoxLayout(holder)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.addWidget(widget)
-    row.addWidget(QLabel(text))
-    row.addStretch(1)
-    return holder
