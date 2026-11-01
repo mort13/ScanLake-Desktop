@@ -6,7 +6,9 @@ TM_CCOEFF_NORMED over a set of template scales; once found, later frames only se
 around the last position at the last scale, which keeps a locked HUD cheap to track.
 
 From 2+ matches a similarity transform (translation, rotation, uniform scale) is fitted with
-RANSAC, so one wrong match out of three is rejected instead of skewing every ROI.
+RANSAC, so one wrong match out of three is rejected instead of skewing every ROI. The fit must
+agree with the template scale the anchors matched at and be (nearly) unrotated: two chance
+matches anywhere on a desktop always fit *some* similarity transform, but not a plausible one.
 """
 
 from __future__ import annotations
@@ -29,6 +31,8 @@ SWEEP_SCALES = tuple(float(s) for s in np.linspace(0.5, 2.0, 17))
 REFINE_STEPS = (-0.04, -0.03, -0.02, -0.01, 0.01, 0.02, 0.03, 0.04)
 TRACK_PADDING = 30  # px at scale 1, around the last match
 RANSAC_THRESHOLD = 3.0  # px at scale 1
+SCALE_TOLERANCE = 0.15  # fitted scale vs the matched template scale
+MAX_ROTATION_DEG = 5.0
 
 
 def load_template(path: Path) -> Gray:
@@ -115,16 +119,17 @@ class AnchorLocator:
         inliers = tuple(a.name for a, ok in zip(found, mask.ravel(), strict=True) if ok)
         if len(inliers) < 2:
             return AnchorFix(matches=matches)
+        affine = np.asarray(transform, dtype=np.float64)
+        scale = uniform_scale(affine)
+        rotation = float(np.degrees(np.arctan2(affine[1, 0], affine[0, 0])))
+        if abs(scale / scale_guess - 1) > SCALE_TOLERANCE or abs(rotation) > MAX_ROTATION_DEG:
+            for a in found:  # chance matches: do not track them
+                self._tracks.pop(a.name, None)
+            return AnchorFix(matches=matches)
         for name in matches:
             if name not in inliers:
                 self._tracks.pop(name, None)
-        affine = np.asarray(transform, dtype=np.float64)
-        return AnchorFix(
-            matches=matches,
-            transform=affine,
-            scale=uniform_scale(affine),
-            inliers=inliers,
-        )
+        return AnchorFix(matches=matches, transform=affine, scale=scale, inliers=inliers)
 
     def match_near(
         self, gray: Gray, anchor: AnchorPoint, x: float, y: float, scale: float, region: Rect | None

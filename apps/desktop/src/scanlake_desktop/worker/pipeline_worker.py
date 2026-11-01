@@ -5,7 +5,8 @@ frames, so switching profile, backend or region always takes effect on the next 
 leave as `LiveState` objects (plain data) through a Qt signal, at most ~10 per second.
 
 While the HUD is not found the loop slows to 2 frames per second, and every few seconds it
-searches the whole monitor at the expected scale to find where the HUD actually is.
+searches the whole monitor at the expected scale to find where the HUD actually is. A frame that
+fails (screen not readable, bad region) is reported once and skipped; it never ends the loop.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ SEARCH_FPS = 2.0
 WIDE_SEARCH_EVERY_S = 3.0
 LOST_RESET_S = 1.0
 EMIT_EVERY_S = 0.1
+MIN_REGION = 32  # px: a smaller capture region cannot hold the HUD
 
 
 @dataclass(frozen=True)
@@ -134,6 +136,7 @@ class _Loop:
         self.last_wide = 0.0
         self.last_emit = 0.0
         self.frame_times: list[float] = []
+        self.last_problem = ""
 
     def close(self) -> None:
         if self.source is not None:
@@ -147,7 +150,12 @@ class _Loop:
             if self.paused or self.recognizer is None or self.config is None:
                 continue
             started = time.perf_counter()
-            locked = self._tick()
+            try:
+                locked = self._tick()
+                self.last_problem = ""
+            except Exception as err:  # one bad frame must not stop capturing
+                locked = False
+                self._frame_failed(err)
             fps = self.config.fps if locked else min(self.config.fps, SEARCH_FPS)
             wait = 1.0 / fps - (time.perf_counter() - started)
             if wait > 0 and not self._drain(wait):
@@ -230,12 +238,20 @@ class _Loop:
             self.engine = create_engine("ort-cpu", config.models_dir)
             self.backend = "ort-cpu"
 
+    def _frame_failed(self, err: Exception) -> None:
+        """Logs and reports a failing frame once (not every frame), and searches afresh."""
+        self.found_region = None
+        message = f"Capture problem: {err}"
+        if message != self.last_problem:
+            self.last_problem = message
+            log.exception("capture frame failed")
+            self.w.problem.emit(message)
+
     def _current_region(self) -> Rect:
         assert self.config is not None
-        if self.config.manual_region is not None:
-            return self.config.manual_region
-        if self.found_region is not None:
-            return self.found_region
+        for region in (self.config.manual_region, self.found_region):
+            if region is not None and region.w >= MIN_REGION and region.h >= MIN_REGION:
+                return region
         return auto_region(self.config.hud.main.search_region, self.config.monitor)
 
     def _tick(self) -> bool:
@@ -312,6 +328,8 @@ class _Loop:
         x1, y1 = apply(fix.transform, r.w, r.h)
         local = Rect(round(x0), round(y0), round(x1 - x0), round(y1 - y0)).pad(0.25)
         local = local.clip(monitor.width, monitor.height)
+        if local.w < MIN_REGION or local.h < MIN_REGION:  # (mostly) off this monitor
+            return
         self.found_region = replace(local, x=local.x + monitor.left, y=local.y + monitor.top)
         log.info(
             "HUD found by full-monitor search at %s (scale %.3f)", self.found_region, fix.scale

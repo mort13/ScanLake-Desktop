@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from scanlake_desktop.capture.source import Monitor
+from scanlake_desktop.capture.source import Monitor, primary_monitor
 from scanlake_desktop.settings import Settings
 
 WELCOME = (
@@ -46,7 +46,8 @@ class FirstRunDialog(QDialog):
         self.monitor = QComboBox()
         for m in monitors:
             self.monitor.addItem(m.label(), m.index)
-        self.monitor.setCurrentIndex(max(0, self.monitor.findData(settings.monitor)))
+        if monitors:  # the game usually runs on the primary monitor (mss may list it second)
+            self.monitor.setCurrentIndex(self.monitor.findData(primary_monitor(monitors).index))
         hint = QLabel(
             "Optional: log in with Discord (top right) to keep your ScanLake ID across PCs."
         )

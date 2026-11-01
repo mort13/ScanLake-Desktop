@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QWidget
 
 from scanlake_desktop.capture.source import Monitor
 
+MIN_BOX = 32  # px; the capture loop ignores smaller regions
+
 
 def screen_for(monitor: Monitor) -> QScreen | None:
     """The QScreen showing an mss monitor (matched on physical size and position order)."""
@@ -36,7 +38,11 @@ def screen_for(monitor: Monitor) -> QScreen | None:
 
 
 class RegionOverlay(QWidget):
-    """Emits the dragged rectangle in the monitor's physical pixels (x, y, w, h)."""
+    """Emits the dragged rectangle in the monitor's physical pixels (x, y, w, h).
+
+    Application-modal: it is opened from the (modal) settings dialog, which would otherwise
+    block its mouse and keyboard input.
+    """
 
     selected = Signal(int, int, int, int)
 
@@ -44,14 +50,22 @@ class RegionOverlay(QWidget):
         super().__init__(
             None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self._screen = screen_for(monitor)
         if self._screen is not None:
+            self.setScreen(self._screen)
             self.setGeometry(self._screen.geometry())
         self._start: QPoint | None = None
         self._end: QPoint | None = None
+
+    def start(self) -> None:
+        self.showFullScreen()
+        self.raise_()
+        self.activateWindow()  # so Esc reaches it
+        self.setFocus()
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         painter = QPainter(self)
@@ -83,7 +97,7 @@ class RegionOverlay(QWidget):
         if self._start is None:
             return
         box = QRect(self._start, event.position().toPoint()).normalized()
-        if box.width() > 20 and box.height() > 20:
+        if box.width() >= MIN_BOX and box.height() >= MIN_BOX:
             dpr = self._screen.devicePixelRatio() if self._screen else 1.0
             self.selected.emit(
                 round(box.x() * dpr), round(box.y() * dpr),

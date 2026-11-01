@@ -98,9 +98,10 @@ class DesktopApp(QObject):
         self.window = MainWindow(ships, self.version)
         self._connect_window()
 
+        self.stopped = False
         self.worker = PipelineWorker()
         self.worker.live.connect(self.on_live)
-        self.worker.problem.connect(lambda text: self.window.flash(text, 15000))
+        self.worker.problem.connect(self._worker_problem)
         self.worker.backend_resolved.connect(self._remember_backend)
         self.worker.start()
 
@@ -324,7 +325,13 @@ class DesktopApp(QObject):
 
     # -- live -----------------------------------------------------------------
 
+    def _worker_problem(self, text: str) -> None:
+        if not self.stopped:
+            self.window.flash(text, 15000)
+
     def on_live(self, state: LiveState) -> None:
+        if self.stopped:
+            return
         self.last_state = state
         if state.ship == self.settings.ship:
             self.window.live.update_state(state)
@@ -683,6 +690,8 @@ class DesktopApp(QObject):
             beep(kind)
 
     def stop(self) -> None:
+        # Live updates the worker queued before it stopped must not reach a closed window
+        self.stopped = True
         self.hotkeys.stop()
         self.worker.stop()
         self.uploader.stop()

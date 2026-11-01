@@ -47,7 +47,7 @@ class Settings(BaseModel):
     org: str = ""
     # Capture
     ship: str = "mole"
-    monitor: int = 1  # mss numbering: 1 = primary monitor
+    monitor: int = 1  # mss numbering (the first-run dialog suggests the primary monitor)
     region_mode: Literal["auto", "manual"] = "auto"
     manual_region: Region | None = None
     fps: int = Field(default=10, ge=1, le=30)

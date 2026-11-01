@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -18,11 +18,12 @@ BLACK_LEVEL = 6  # max pixel value below which a frame counts as black (fullscre
 
 @dataclass(frozen=True)
 class Monitor:
-    index: int  # mss numbering: 1 = primary
+    index: int  # mss numbering, from 1 (not necessarily the primary monitor)
     left: int
     top: int
     width: int
     height: int
+    primary: bool = False
 
     @property
     def rect(self) -> Rect:
@@ -34,7 +35,8 @@ class Monitor:
         return self.height / REFERENCE_HEIGHT
 
     def label(self) -> str:
-        return f"Monitor {self.index}: {self.width}x{self.height}"
+        primary = " (primary)" if self.primary else ""
+        return f"Monitor {self.index}: {self.width}x{self.height}{primary}"
 
 
 def list_monitors() -> list[Monitor]:
@@ -46,11 +48,22 @@ def list_monitors() -> list[Monitor]:
     except Exception:
         return []
     with sct:
-        return [
-            Monitor(i, m["left"], m["top"], m["width"], m["height"])
+        monitors = [
+            Monitor(
+                i, m["left"], m["top"], m["width"], m["height"], bool(m.get("is_primary", False))
+            )
             for i, m in enumerate(sct.monitors)
             if i > 0
         ]
+    if monitors and not any(m.primary for m in monitors):
+        # mss without primary info: Windows puts the primary monitor's origin at (0, 0)
+        origin = next((m for m in monitors if (m.left, m.top) == (0, 0)), monitors[0])
+        monitors = [replace(m, primary=m is origin) for m in monitors]
+    return monitors
+
+
+def primary_monitor(monitors: Sequence[Monitor]) -> Monitor:
+    return next((m for m in monitors if m.primary), monitors[0])
 
 
 def auto_region(search_region: Rect, monitor: Monitor, pad: float = 0.25) -> Rect:

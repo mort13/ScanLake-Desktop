@@ -19,6 +19,26 @@ def _require_assets() -> None:
         pytest.skip("assets not fetched: run `python packaging/fetch_assets.py`")
 
 
+@pytest.fixture(autouse=True)
+def memory_keyring(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, str], str]:
+    """Tests never touch the real credential store: it may hold the developer's real login."""
+    store: dict[tuple[str, str], str] = {}
+    try:
+        import keyring
+    except ImportError:
+        return store
+
+    def set_password(service: str, user: str, secret: str) -> None:
+        store[service, user] = secret
+
+    monkeypatch.setattr(keyring, "get_password", lambda service, user: store.get((service, user)))
+    monkeypatch.setattr(keyring, "set_password", set_password)
+    monkeypatch.setattr(
+        keyring, "delete_password", lambda service, user: store.pop((service, user))
+    )
+    return store
+
+
 @pytest.fixture(scope="session")
 def format_json() -> dict[str, object]:
     _require_assets()

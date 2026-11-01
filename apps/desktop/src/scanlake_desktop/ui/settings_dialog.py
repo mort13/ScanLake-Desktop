@@ -69,6 +69,7 @@ class SettingsDialog(QDialog):
         self._settings = settings
         self._monitors = monitors
         self._manual_region = settings.manual_region
+        self._overlay: RegionOverlay | None = None
 
         tabs = QTabWidget()
         tabs.addTab(self._player_tab(), "Player")
@@ -239,7 +240,8 @@ class SettingsDialog(QDialog):
         monitor = next((m for m in self._monitors if m.index == index), None)
         if monitor is None:
             return
-        overlay = RegionOverlay(monitor)
+        # Keep a reference: a parentless widget is deleted with its last Python reference
+        self._overlay = overlay = RegionOverlay(monitor)
 
         def chosen(x: int, y: int, w: int, h: int) -> None:
             self._manual_region = Region(x=x, y=y, w=w, h=h)
@@ -247,7 +249,7 @@ class SettingsDialog(QDialog):
             self.region_label.setText(self._region_text())
 
         overlay.selected.connect(chosen)
-        overlay.showFullScreen()
+        overlay.start()
 
     def _reset_assets(self) -> None:
         from scanlake_desktop import updates

@@ -64,7 +64,11 @@ def test_filters_bit_exact(settings: FilterSettings) -> None:
 
 
 def _paste_hud(
-    hud: HudProfile, scale: float, offset: tuple[int, int], size: tuple[int, int]
+    hud: HudProfile,
+    scale: float,
+    offset: tuple[int, int],
+    size: tuple[int, int],
+    spread: float | None = None,  # anchor spacing scale, if not `scale` (an impossible HUD)
 ) -> np.ndarray:
     capture = hud.main
     templates = load_templates(capture.anchors, ASSETS / "anchors")
@@ -73,8 +77,8 @@ def _paste_hud(
         t = templates[anchor.name]
         th, tw = t.shape
         scaled = cv2.resize(t, (round(tw * scale), round(th * scale)), interpolation=cv2.INTER_AREA)
-        x = round(offset[0] + anchor.ref_x * scale)
-        y = round(offset[1] + anchor.ref_y * scale)
+        x = round(offset[0] + anchor.ref_x * (spread or scale))
+        y = round(offset[1] + anchor.ref_y * (spread or scale))
         sh, sw = scaled.shape
         frame[y : y + sh, x : x + sw] = cv2.cvtColor(scaled, cv2.COLOR_GRAY2BGR)
     return frame
@@ -125,3 +129,18 @@ def test_one_wrong_anchor_is_rejected(profiles: dict[str, HudProfile]) -> None:
     fix = AnchorLocator(capture.anchors, templates).locate(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
     assert fix.found and "auto" not in fix.inliers
     assert fix.scale == pytest.approx(1.0, rel=0.01)
+
+
+@pytest.mark.parametrize("spread", [0.5, 1.5])
+def test_anchors_too_close_or_too_far_apart_are_not_a_hud(
+    profiles: dict[str, HudProfile], spread: float
+) -> None:
+    # Anchor templates at full size, but placed as if the HUD were half/1.5x as big: chance
+    # matches on a desktop look like this, and must not count as a found HUD
+    capture = profiles["mole"].main
+    region = capture.search_region
+    frame = _paste_hud(profiles["mole"], 1.0, (20, 20), (region.w * 2, region.h * 2), spread)
+    locator = AnchorLocator(capture.anchors, load_templates(capture.anchors, ASSETS / "anchors"))
+    fix = locator.locate(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), expected_scale=1.0)
+    assert sum(m.found for m in fix.matches.values()) >= 2  # the anchors themselves match
+    assert not fix.found
