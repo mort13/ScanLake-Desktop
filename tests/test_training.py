@@ -70,7 +70,17 @@ def test_glyph_cut_from_a_screenshot(tmp_path: Path) -> None:
     assert glyph.shape == (8, 11, 4) and (glyph[:, :, :3] == 255).all()
     assert glyph[0, 0, 3] > 230 and glyph[5, 1, 3] < 10  # stem vs. gap
     original = synth.load_glyph(synth.resource_dir() / "glyphs" / "3.png")
-    assert original.shape == (11, 8, 4)  # soft-alpha glyphs are used as they are
+    assert original.shape == (11, 8, 4)  # soft-alpha glyphs keep their size
+
+
+def test_soft_glyphs_are_opaque_without_a_box() -> None:
+    """No faint alpha floor around the ink (it drew a box around every synthetic digit), and
+    every digit as opaque as the others (the "0" used to be far dimmer)."""
+    root = synth.resource_dir()
+    for ch in "0123456789.%":
+        alpha = synth.load_glyph(root / "glyphs" / synth.GLYPH_FILES[ch])[:, :, 3]
+        corners = alpha[[0, 0, -1, -1], [0, -1, 0, -1]]
+        assert alpha.max() == 255 and corners.max() <= 12, ch  # it used to be 10-40 all round
 
 
 def test_lowercase_m_sits_on_the_baseline() -> None:
@@ -90,6 +100,83 @@ def test_lowercase_m_sits_on_the_baseline() -> None:
     assert min(peaks) - 2 <= letter.max() <= max(peaks) + 2  # as bright as the digits
     height = [r.max() - r.min() + 1 for r in rows]
     assert 0.6 < height[1] / height[0] < 0.85  # x-height, as on the HUD (8 of 11 px)
+
+
+def _ink_box(strip: np.ndarray, background: int) -> tuple[np.ndarray, np.ndarray]:
+    ink = strip.astype(int) > background + 50
+    return np.nonzero(ink.any(axis=1))[0], np.nonzero(ink.any(axis=0))[0]
+
+
+def test_the_dot_sits_on_the_baseline() -> None:
+    import random
+
+    root = synth.resource_dir()
+    glyphs = {ch: synth.load_glyph(root / "glyphs" / n) for ch, n in synth.GLYPH_FILES.items()}
+    flat = np.full((64, 64, 3), 10, np.uint8)
+    for seed in range(20):  # small and large glyphs: it used to hang up to 6 px below
+        strip = synth.compose_strip("1.1", glyphs, flat, random.Random(seed))
+        rows, columns = _ink_box(strip, 10)
+        gaps = np.nonzero(np.diff(columns) > 1)[0]
+        dot = strip[:, columns[gaps[0] + 1] : columns[gaps[1]] + 1]
+        digit_rows, _ = _ink_box(strip[:, : columns[gaps[0]] + 1], 10)
+        dot_rows, _ = _ink_box(dot, 10)
+        assert abs(int(dot_rows.max()) - int(digit_rows.max())) <= 1
+
+
+def test_framed_strips_sit_in_a_roi() -> None:
+    """Framed like the HUD's ROIs: margins all round, the digits filling about half the height,
+    left- or right-aligned."""
+    import random
+
+    root = synth.resource_dir()
+    glyphs = {ch: synth.load_glyph(root / "glyphs" / n) for ch, n in synth.GLYPH_FILES.items()}
+    flat = np.full((64, 64, 3), 10, np.uint8)
+    aligned = {"left": 0, "right": 0}
+    for seed in range(60):
+        rng = random.Random(seed)
+        strip = synth.compose_strip("42", glyphs, flat, rng, synth.ROI_FRAMING)
+        rows, columns = _ink_box(strip, 10)
+        h, w = strip.shape
+        assert rows.min() > 0 and rows.max() < h - 1  # background above and below
+        assert 0.4 < (rows.max() - rows.min() + 1) / h < 0.85
+        assert w >= 2.2 * (rows.max() - rows.min() + 1)  # about as wide as a 2-digit ROI or more
+        left, right = columns.min(), w - 1 - columns.max()
+        if left < right:
+            aligned["left"] += 1
+        else:
+            aligned["right"] += 1
+    assert min(aligned.values()) >= 10
+
+
+def test_framed_share(tmp_path: Path) -> None:
+    from scanlake_training.data import load_gray
+
+    synth.generate_strips(tmp_path / "tight", 4, seed=5, framed=0.0)
+    synth.generate_strips(tmp_path / "framed", 4, seed=5, framed=1.0)
+    tight = [load_gray(p).shape[0] for p in (tmp_path / "tight").iterdir()]
+    framed = [load_gray(p).shape[0] for p in (tmp_path / "framed").iterdir()]
+    assert set(tight) == {synth.STRIP_H} and len(set(framed)) > 1
+
+
+def test_real_glyph_cuts_join_the_originals(tmp_path: Path) -> None:
+    import cv2
+
+    real = tmp_path / "real"
+    real.mkdir()
+    cut = np.zeros((13, 10, 4), np.uint8)
+    cut[:, :, :3] = 255
+    cut[1:-1, 1:-1, 3] = 230
+    cv2.imencode(".png", cut)[1].tofile(str(real / "0_1104_inst_0.png"))
+    cv2.imencode(".png", cut)[1].tofile(str(real / "percent_1104_amount1_5.png"))
+    cv2.imencode(".png", cut)[1].tofile(str(real / "notes.png"))  # no such character: ignored
+    variants = synth.load_glyph_variants(synth.resource_dir(), real)
+    assert set(variants) == set(synth.GLYPH_FILES)
+    assert len(variants["0"]) == 2 and len(variants["%"]) == 2 and len(variants["1"]) == 1
+    rng = __import__("random").Random(3)
+    picked = synth.pick_glyphs(variants, rng, real=1.0)
+    assert picked["0"] is variants["0"][1] and picked["1"] is variants["1"][0]
+    assert all(g is variants[ch][0] for ch, g in synth.pick_glyphs(variants, rng, 0.0).items())
+    assert synth.generate_strips(tmp_path / "out", 2, seed=3, real=1.0, real_dir=real) == 10
 
 
 def test_a_wider_alphabet_starts_from_the_old_model(tmp_path: Path) -> None:

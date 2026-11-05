@@ -1,7 +1,10 @@
 """Synthetic training data (ported from Rock Capture CNN's generate_synth_*.py).
 
 Strips: digit glyphs composited side by side on HUD background crops, in the formats the HUD
-shows (12.34, 56%, 123456, 12.34%, and 25.26m for volumes under 1 SCU). Words: a resource/deposit
+shows (12.34, 56%, 123456, 12.34%, and 25.26m for volumes under 1 SCU). Most strips frame the
+text like a real ROI does (background margins, left- or right-aligned, see `Framing`): on bright
+backgrounds the autocrop cannot remove those margins, and models trained on tight strips only
+misread such crops. Words: a resource/deposit
 name template (sometimes followed by "ore"/"raw") on a background crop; the `empty` class is
 background only.
 
@@ -32,6 +35,12 @@ GLYPH_FILES = {
 }
 LOWERCASE = frozenset("m")  # x-height letters: scaled to the digits, on their baseline
 X_HEIGHT = 8 / 11  # the "m" vs the digits' height, measured on the HUD ("25.26m SCU")
+# Characters cut from real HUD frames, named after GLYPH_FILES ("0_1104_inst_2.png"; the first
+# ones from two Prospector snapshots, 2560x1440 at HUD scale 1.1, one on dark and one on grey
+# rock). At HUD size the game's slashed 0 is a blob with two faint dimples and its 8 has two dark
+# holes; the single original cut of each did not teach that difference (real 0.00 read as 0.80).
+REAL_GLYPHS = "real"
+REAL_SHARE = 0.5  # strips drawn with real cuts (where a character has any) instead of the originals
 
 
 def resource_dir() -> Path:
@@ -63,13 +72,23 @@ def _bgra(image: np.ndarray) -> np.ndarray:
 def load_glyph(path: Path) -> np.ndarray:
     """A glyph as white BGRA with its shape in alpha, cropped to the ink.
 
-    Glyphs with a soft alpha (the original ones) are used as they are. A glyph that is just a
-    rectangle cut from a screenshot (alpha only 0/255, background included, possibly on a
-    larger transparent canvas) gets its alpha from the brightness above that background.
+    Glyphs with a soft alpha (the original ones) keep their size, but their alpha is stretched
+    from the level at their border (0) to their peak (255): as cut, they never fell to zero
+    (10-40 around the ink, a faint box around every synthetic digit that real crops do not have)
+    and differed in opacity ("0" peaked at 162, the others near 230, so every synthetic 0 was
+    dimmer than the other digits; real ones are not). A glyph that is just a rectangle cut from a
+    screenshot (alpha only 0/255, background included, possibly on a larger transparent canvas)
+    gets its alpha from the brightness above that background.
     """
     image = _bgra(_read(path))
     alpha = image[:, :, 3]
-    if set(np.unique(alpha).tolist()) <= {0, 255}:
+    if not set(np.unique(alpha).tolist()) <= {0, 255}:
+        a = alpha.astype(np.float32)
+        floor = float(np.median(np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])))
+        stretched = np.clip((a - floor) / max(float(a.max()) - floor, 1.0), 0, 1) * 255
+        image = image.copy()
+        image[:, :, 3] = stretched.round().astype(np.uint8)
+    else:
         ys, xs = np.nonzero(alpha)
         box = image[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
         gray = cv2.cvtColor(box[:, :, :3], cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -82,6 +101,32 @@ def load_glyph(path: Path) -> np.ndarray:
         image[:, :, :3] = 255
         image[:, :, 3] = soft.round().astype(np.uint8)
     return image
+
+
+def load_glyph_variants(root: Path, real_dir: Path | None = None) -> dict[str, list[np.ndarray]]:
+    """Every character's glyphs: the original cut first, then the real cuts in `real_dir`
+    (default `glyphs/real/`), matched by the original's file stem before the first "_"."""
+    variants = {ch: [load_glyph(root / "glyphs" / name)] for ch, name in GLYPH_FILES.items()}
+    by_stem = {Path(name).stem: ch for ch, name in GLYPH_FILES.items()}
+    folder = real_dir if real_dir is not None else root / "glyphs" / REAL_GLYPHS
+    if folder.is_dir():
+        for path in sorted(folder.glob("*.png")):
+            ch = by_stem.get(path.stem.split("_")[0])
+            if ch is not None:
+                variants[ch].append(load_glyph(path))
+    return variants
+
+
+def pick_glyphs(
+    variants: dict[str, list[np.ndarray]], rng: random.Random, real: float
+) -> dict[str, np.ndarray]:
+    """The glyphs for one strip: with probability `real` a random real cut per character (the
+    original where it has none), otherwise the originals."""
+    if real <= 0 or all(len(v) == 1 for v in variants.values()):
+        return {ch: v[0] for ch, v in variants.items()}
+    if rng.random() >= real:
+        return {ch: v[0] for ch, v in variants.items()}
+    return {ch: rng.choice(v[1:]) if len(v) > 1 else v[0] for ch, v in variants.items()}
 
 
 def load_backgrounds(root: Path) -> list[np.ndarray]:
@@ -149,17 +194,69 @@ STRIP_FORMATS: dict[str, Callable[[random.Random], str]] = {
 }
 
 
+@dataclass(frozen=True)
+class Framing:
+    """Where a value sits in its ROI.
+
+    Measured on real digit ROIs (Prospector, 2560x1440, HUD scale 1.1): the digits fill 53-58 %
+    of the ROI height and 8-91 % of its width ("1" in the mass ROI, "51.96%" in an amount ROI),
+    2-4 px from the left edge, or from the right one (quality, volume). The ranges are wider.
+    """
+
+    height_fill: tuple[float, float] = (0.45, 0.72)  # digit height / ROI height
+    aspect: tuple[float, float] = (2.5, 6.5)  # ROI width / digit height (at least the text)
+    margin: tuple[float, float] = (0.1, 0.4)  # text to ROI edge, in digit heights
+    right: float = 0.35  # share of right-aligned values
+    anywhere: float = 0.15  # share placed anywhere in the free width; the rest is left-aligned
+
+
+ROI_FRAMING = Framing()
+FRAMED_SHARE = 0.75  # strips framed like a ROI; the rest are tight around the text
+
+
+def _frame(
+    text_w: int, ink_top: int, baseline: int, framing: Framing, rng: random.Random
+) -> tuple[int, int, int, int]:
+    """A ROI around a text of `text_w` whose digits span rows ink_top..baseline of a STRIP_H
+    layout: (height, width, dx, dy), where (dx, dy) moves the layout into the ROI."""
+    digit_h = baseline - ink_top
+    height = max(digit_h + 2, round(digit_h / rng.uniform(*framing.height_fill)))
+    ink_y = round((height - digit_h) * rng.uniform(0.35, 0.65))
+    left = round(digit_h * rng.uniform(*framing.margin))
+    right = round(digit_h * rng.uniform(*framing.margin))
+    width = max(text_w + left + right, round(digit_h * rng.uniform(*framing.aspect)))
+    pick = rng.random()
+    if pick < framing.right:
+        dx = width - text_w - right
+    elif pick < framing.right + framing.anywhere:
+        dx = rng.randint(0, width - text_w)
+    else:
+        dx = left
+    return height, width, dx, ink_y - ink_top
+
+
 def compose_strip(
-    text: str, glyphs: dict[str, np.ndarray], background: np.ndarray, rng: random.Random
+    text: str,
+    glyphs: dict[str, np.ndarray],
+    background: np.ndarray,
+    rng: random.Random,
+    framing: Framing | None = None,
 ) -> Gray:
     """Alpha-composites the glyphs of `text` on a background crop; the dot and lowercase letters
-    sit on the baseline."""
+    sit on the baseline.
+
+    Without `framing` the crop is as tall as the layout and as wide as the text (what the first
+    models were trained on). With it, the crop is a ROI around the text, which on a bright
+    background survives the autocrop: the model then sees smaller text with background around it.
+    """
     glyph_h = max(4, int(STRIP_H * rng.uniform(0.65, 0.95)))
     # The digit glyphs carry a faint row or two around the ink: measure the ink of "0"
     digit = glyphs["0"]
-    ink = np.nonzero(digit[:, :, 3].max(axis=1) >= 0.35 * digit[:, :, 3].max())[0]
+    ink = _ink_rows(digit)
     digit_scale = glyph_h / digit.shape[0]
-    baseline = (STRIP_H - glyph_h) // 2 + round((ink.max() + 1) * digit_scale)
+    top = (STRIP_H - glyph_h) // 2
+    ink_top = top + round(ink.min() * digit_scale)
+    baseline = top + round((ink.max() + 1) * digit_scale)
     x_height = (ink.max() - ink.min() + 1) * digit_scale * X_HEIGHT
     # ... and are not fully opaque: letters cut from a frame get the digits' typical opacity
     opacity = float(np.median([glyphs[str(d)][:, :, 3].max() for d in range(10)])) / 255
@@ -181,7 +278,8 @@ def compose_strip(
             img = cv2.resize(
                 src, (max(1, round(sw * dot_h / sh)), dot_h), interpolation=cv2.INTER_AREA
             )
-            top = STRIP_H - glyph_h + max(0, glyph_h - dot_h - round(glyph_h * 0.1))
+            # the dot's ink ends on the digits' baseline (it used to hang below small digits)
+            top = baseline - round((_ink_rows(src).max() + 1) * dot_h / sh)
         else:
             img = cv2.resize(
                 src, (max(1, round(sw * glyph_h / sh)), glyph_h), interpolation=cv2.INTER_AREA
@@ -189,13 +287,18 @@ def compose_strip(
             top = (STRIP_H - glyph_h) // 2
         placed.append((img, top))
 
-    gaps = [rng.randint(0, 2) for _ in range(len(placed) - 1)]
-    width = max(sum(g.shape[1] for g, _ in placed) + sum(gaps) + 2, 16)
-    canvas = _crop(background, STRIP_H, width, rng).astype(np.float32)
-    x = 0
+    gaps = [rng.randint(0, 3) for _ in range(len(placed) - 1)]
+    text_w = sum(g.shape[1] for g, _ in placed) + sum(gaps)
+    if framing is None:
+        height, width, dx, dy = STRIP_H, max(text_w + 2, 16), 0, 0
+    else:
+        height, width, dx, dy = _frame(text_w, ink_top, baseline, framing, rng)
+    canvas = _crop(background, height, width, rng).astype(np.float32)
+    x = dx
     for i, (glyph, top) in enumerate(placed):
+        top += dy
         gh, gw = glyph.shape[:2]
-        y0, y1 = max(0, top), min(STRIP_H, top + gh)
+        y0, y1 = max(0, top), min(height, top + gh)
         g0 = y0 - top
         x1 = min(width, x + gw)
         alpha = glyph[g0 : g0 + (y1 - y0), : x1 - x, 3:4].astype(np.float32) / 255.0
@@ -205,13 +308,28 @@ def compose_strip(
     return np.asarray(cv2.cvtColor(np.clip(canvas, 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY))
 
 
+def _ink_rows(glyph: np.ndarray) -> np.ndarray:
+    """Rows of a BGRA glyph whose alpha reaches 35 % of its peak (without the faint fringe)."""
+    alpha = glyph[:, :, 3].max(axis=1)
+    return np.nonzero(alpha >= 0.35 * alpha.max())[0]
+
+
 def generate_strips(
-    out: Path, per_format: int, seed: int | None = None, root: Path | None = None
+    out: Path,
+    per_format: int,
+    seed: int | None = None,
+    root: Path | None = None,
+    framed: float = FRAMED_SHARE,
+    real: float = REAL_SHARE,
+    real_dir: Path | None = None,
 ) -> int:
-    """Writes `per_format` strips per format to `out` as `<label>_<n>.png`; returns the count."""
+    """Writes `per_format` strips per format to `out` as `<label>_<n>.png`; returns the count.
+
+    A share `framed` of them sits in a ROI-sized crop (see `Framing`), the rest is tight. A share
+    `real` is drawn with glyphs cut from real frames (see `load_glyph_variants`)."""
     root = root or resource_dir()
     rng = random.Random(seed)
-    glyphs = {ch: load_glyph(root / "glyphs" / name) for ch, name in GLYPH_FILES.items()}
+    variants = load_glyph_variants(root, real_dir)
     backgrounds = load_backgrounds(root)
     out.mkdir(parents=True, exist_ok=True)
     start = _next_index(out)
@@ -219,7 +337,10 @@ def generate_strips(
     for make in STRIP_FORMATS.values():
         for _ in range(per_format):
             text = make(rng)
-            strip = photometric(compose_strip(text, glyphs, rng.choice(backgrounds), rng), rng)
+            background = rng.choice(backgrounds)
+            framing = ROI_FRAMING if rng.random() < framed else None
+            glyphs = pick_glyphs(variants, rng, real)
+            strip = photometric(compose_strip(text, glyphs, background, rng, framing), rng)
             _write(out / f"{text}_{start + n:06d}.png", strip)
             n += 1
     return n

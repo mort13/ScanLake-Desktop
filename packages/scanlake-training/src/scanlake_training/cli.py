@@ -1,6 +1,7 @@
 """`scanlake-train`: synthetic data, training, export and evaluation of the ScanLake models.
 
-    scanlake-train synth strips OUT [--per-format 300] [--seed N]
+    scanlake-train synth strips OUT [--per-format 300] [--framed 0.75] [--real 0.5]
+                                    [--real-glyphs DIR] [--seed N]
     scanlake-train synth words OUT [--per-class 200] [--seed N]
     scanlake-train train crnn --data DIR [--val-data DIR] [--out STEM] [--epochs 60] [--json]
     scanlake-train train word --data DIR [--val-data DIR] [--out STEM] [--epochs 60] [--json]
@@ -57,7 +58,12 @@ def _synth(args: argparse.Namespace) -> int:
     from scanlake_training import synth
 
     if args.what == "strips":
-        n = synth.generate_strips(Path(args.out), args.per_format, args.seed)
+        framed = synth.FRAMED_SHARE if args.framed is None else args.framed
+        real = synth.REAL_SHARE if args.real is None else args.real
+        real_dir = Path(args.real_glyphs) if args.real_glyphs else None
+        n = synth.generate_strips(
+            Path(args.out), args.per_format, args.seed, framed=framed, real=real, real_dir=real_dir
+        )
         print(f"wrote {n} strips to {args.out}")
     else:
         counts = synth.generate_words(Path(args.out), args.per_class, args.seed)
@@ -178,6 +184,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("what", choices=["strips", "words"])
     s.add_argument("out")
     s.add_argument("--per-format", type=int, default=300, help="strips per format")
+    s.add_argument(
+        "--framed", type=float,
+        help="share of strips framed like a ROI, the rest tight around the text (default 0.75)",
+    )  # fmt: skip
+    s.add_argument(
+        "--real", type=float,
+        help="share of strips drawn with glyphs cut from real frames (default 0.5)",
+    )  # fmt: skip
+    s.add_argument("--real-glyphs", help="folder of real glyph cuts (default: glyphs/real/)")
     s.add_argument("--per-class", type=int, default=200, help="word images per class")
     s.add_argument("--seed", type=int)
     s.set_defaults(run=_synth)
