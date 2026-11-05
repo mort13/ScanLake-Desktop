@@ -46,6 +46,7 @@ def test_shipped_torch_weights_match_the_onnx_files() -> None:
     ort = OrtEngine(ModelFiles(SHIPPED), "cpu")
     assert pt.digit_classes == ort.digit_classes == CHAR_CLASSES
     assert pt.word_classes == ort.word_classes
+    assert (pt.digit_preprocess, pt.word_preprocess) == (ort.digit_preprocess, ort.word_preprocess)
     assert np.abs(pt.digits(BATCH) - ort.digits(BATCH)).max() < 1e-3
     assert np.abs(pt.words(BATCH[:6]) - ort.words(BATCH[:6])).max() < 1e-3
     assert (pt.digits(BATCH).argmax(2) == ort.digits(BATCH).argmax(2)).all()

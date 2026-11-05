@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from scanlake_core.preprocess import resize_pad
+from scanlake_core.preprocess import PREPROCESS_VERSION, resize_pad
 from scanlake_desktop.capture.source import read_image
 from scanlake_desktop.dev.debug_window import to_pixmap
 
@@ -167,7 +167,9 @@ class LabelerWindow(QWidget):
             to_pixmap(cv2.resize(image, (w * zoom, h * zoom), interpolation=cv2.INTER_NEAREST))
         )
         canvas = cv2.cvtColor(
-            resize_pad(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)), cv2.COLOR_GRAY2BGR
+            # the canvas training will make of this crop
+            resize_pad(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), version=PREPROCESS_VERSION),
+            cv2.COLOR_GRAY2BGR,
         )
         self.model_input.setPixmap(
             to_pixmap(cv2.resize(canvas, (512, 64), interpolation=cv2.INTER_NEAREST))

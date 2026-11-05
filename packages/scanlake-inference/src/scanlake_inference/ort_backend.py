@@ -69,6 +69,14 @@ class OrtEngine:
     def word_classes(self) -> tuple[str, ...]:
         return self._word_meta.word_classes
 
+    @property
+    def digit_preprocess(self) -> str:
+        return self._digit_meta.preprocess
+
+    @property
+    def word_preprocess(self) -> str:
+        return self._word_meta.preprocess
+
     def digits(self, batch: Floats) -> Floats:
         (out,) = self._digit.run(None, {self._digit.get_inputs()[0].name: _contiguous(batch)})
         return np.asarray(out, dtype=np.float32)

@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from scanlake_core.preprocess import LEGACY_PREPROCESS, preprocess_of
+
 DIGIT_MODEL = "digit_crnn"
 WORD_MODEL = "word_model2k"
 
@@ -15,11 +17,13 @@ class DigitMeta:
     char_classes: str
     blank_index: int
     time_steps: int
+    preprocess: str = LEGACY_PREPROCESS
 
 
 @dataclass(frozen=True)
 class WordMeta:
     word_classes: tuple[str, ...]
+    preprocess: str = LEGACY_PREPROCESS
 
 
 def load_digit_meta(path: Path) -> DigitMeta:
@@ -28,12 +32,13 @@ def load_digit_meta(path: Path) -> DigitMeta:
         char_classes=raw["charClasses"],
         blank_index=int(raw.get("blankIdx", 0)),
         time_steps=int(raw.get("timeSteps", 64)),
+        preprocess=preprocess_of(raw),
     )
 
 
 def load_word_meta(path: Path) -> WordMeta:
     raw = json.loads(path.read_text(encoding="utf-8"))
-    return WordMeta(word_classes=tuple(raw["wordClasses"]))
+    return WordMeta(word_classes=tuple(raw["wordClasses"]), preprocess=preprocess_of(raw))
 
 
 @dataclass(frozen=True)

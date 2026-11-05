@@ -14,9 +14,9 @@ import cv2
 import numpy as np
 import pytest
 
-from scanlake_core.decode import ctc_greedy, softmax
+from scanlake_core.decode import Floats, ctc_greedy, softmax
 from scanlake_core.fields import field_spec
-from scanlake_core.preprocess import preprocess_strip, to_input
+from scanlake_core.preprocess import STRIP_V1, STRIP_V2, preprocess_strip, to_input
 from scanlake_core.profile.model import HudProfile
 from scanlake_core.recognition import FrameRecognizer
 from scanlake_core.schema_map import field_slots
@@ -42,6 +42,23 @@ PATTERNS = {
 }
 
 
+class _DigitsOnV2:
+    """The real engine, except that its digit model says it was trained with strip_v2."""
+
+    digit_preprocess = STRIP_V2
+
+    def __init__(self, inner: OrtEngine) -> None:
+        self.inner = inner
+        self.fed: list[Floats] = []
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.inner, name)
+
+    def digits(self, batch: Floats) -> Floats:
+        self.fed.append(batch)
+        return self.inner.digits(batch)
+
+
 @pytest.fixture(scope="module")
 def engine() -> OrtEngine:
     return OrtEngine(ModelFiles(ASSETS / "models"), "cpu")
@@ -55,7 +72,7 @@ def _pick_strips(engine: OrtEngine, pattern: str, n: int, rng: random.Random) ->
     picked: list[np.ndarray] = []
     for path in files:
         gray, label = _read_gray(path), path.stem.rsplit("_", 1)[0]
-        canvas = preprocess_strip(gray)
+        canvas = preprocess_strip(gray, version=engine.digit_preprocess)
         if canvas is None:
             continue
         [result] = ctc_greedy(engine.digits(to_input([canvas])), engine.digit_classes)
@@ -71,7 +88,7 @@ def _pick_word(engine: OrtEngine, cls: str, rng: random.Random) -> np.ndarray:
     rng.shuffle(files)
     for path in files:
         gray = _read_gray(path)
-        canvas = preprocess_strip(gray)
+        canvas = preprocess_strip(gray, version=engine.word_preprocess)
         if canvas is None:
             continue
         p = softmax(engine.words(to_input([canvas])))[0]
@@ -117,7 +134,9 @@ def test_recognizer_end_to_end(engine: OrtEngine, profiles: dict[str, HudProfile
         image = crop(frame, rect)
         if roi.recognition_mode == "digit_crnn":
             image = apply_filters(image, roi.filters)
-        canvas = preprocess_strip(image)
+        digits = roi.recognition_mode == "digit_crnn"
+        version = engine.digit_preprocess if digits else engine.word_preprocess
+        canvas = preprocess_strip(image, version=version)
         spec = field_spec(columns[roi.name])
         if canvas is None:
             expected: str | None = ""
@@ -137,3 +156,21 @@ def test_recognizer_end_to_end(engine: OrtEngine, profiles: dict[str, HudProfile
     assert {n: r.text for n, r in again.readings.items()} == {
         n: r.text for n, r in result.readings.items()
     }
+
+    # Each model is fed canvases made its own way: here digits strip_v2, words still strip_v1
+    v2 = _DigitsOnV2(engine)
+    other = FrameRecognizer(hud, templates, v2).process(frame)  # type: ignore[arg-type]
+    digit_rois = [r for r in capture.rois if r.recognition_mode == "digit_crnn"]
+    crops = [
+        apply_filters(crop(frame, result.readings[r.name].rect), r.filters) for r in digit_rois
+    ]
+
+    def canvases(version: str) -> list[np.ndarray]:
+        made = [preprocess_strip(c, version=version) for c in crops]
+        return [c for c in made if c is not None]
+
+    [batch] = v2.fed
+    assert np.array_equal(batch, to_input(canvases(STRIP_V2)))
+    assert not np.array_equal(batch, to_input(canvases(STRIP_V1)))  # the versions differ here
+    words = [r.name for r in capture.rois if r.recognition_mode == "word_cnn"]
+    assert {n: other.readings[n].text for n in words} == {n: result.readings[n].text for n in words}

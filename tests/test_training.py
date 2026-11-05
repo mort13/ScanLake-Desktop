@@ -10,7 +10,7 @@ import pytest
 
 pytest.importorskip("torch")
 
-from scanlake_core.preprocess import resize_pad  # noqa: E402
+from scanlake_core.preprocess import PREPROCESS_VERSION, resize_pad  # noqa: E402
 from scanlake_training import data, synth  # noqa: E402
 from scanlake_training.cli import main as cli  # noqa: E402
 from scanlake_training.evaluate import evaluate_model  # noqa: E402
@@ -52,7 +52,7 @@ def test_synth_strips_parse_and_preprocess(strips: Path) -> None:
     formats = {s.label.count(".") + 2 * s.label.endswith("%") + 4 * s.label.endswith("m")
                for s in samples}  # fmt: skip
     assert formats == {0, 1, 2, 3, 5}  # integer, decimal, percent, decimal %, decimal m
-    canvas = resize_pad(data.load_gray(samples[0].path))
+    canvas = resize_pad(data.load_gray(samples[0].path), version=PREPROCESS_VERSION)
     assert canvas.shape == (32, 256) and canvas.max() > 100
 
 
@@ -238,6 +238,7 @@ def test_crnn_smoke_train_export_and_evaluate(strips: Path, tmp_path: Path) -> N
 
     meta = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
     assert meta["charClasses"] == "0123456789.%m" and meta["timeSteps"] == 64 and meta["epoch"] == 1
+    assert meta["preprocess"] == PREPROCESS_VERSION  # what the datasets fed it
 
     onnx_stem = tmp_path / "onnx" / "digit_crnn"
     export_onnx(out, onnx_stem)

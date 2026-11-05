@@ -6,6 +6,7 @@ checkout is next to this repo (they are not part of this repository).
 
 from __future__ import annotations
 
+import json
 import os
 import random
 from pathlib import Path
@@ -15,8 +16,8 @@ import numpy as np
 import pytest
 
 from scanlake_core.decode import ctc_greedy, softmax
-from scanlake_core.preprocess import preprocess_strip, to_input
-from scanlake_inference.metadata import ModelFiles
+from scanlake_core.preprocess import STRIP_V1, STRIP_V2, preprocess_strip, to_input
+from scanlake_inference.metadata import ModelFiles, load_digit_meta, load_word_meta
 from scanlake_inference.ort_backend import OrtEngine, dml_available
 from scanlake_inference.registry import available_backends
 from tests.conftest import ASSETS, ROOT
@@ -48,6 +49,21 @@ def test_metadata(cpu: OrtEngine) -> None:
     assert cpu.digit_classes == "0123456789.%m"  # "m": milli-SCU volumes ("25.26m SCU")
     assert cpu.blank_index == 0
     assert len(cpu.word_classes) == 31 and "empty" in cpu.word_classes
+    assert cpu.digit_preprocess == cpu.word_preprocess == STRIP_V1  # the pinned models
+
+
+def test_metadata_names_the_preprocessing(tmp_path: Path) -> None:
+    digit, word = tmp_path / "digit_crnn.json", tmp_path / "word_model2k.json"
+    base = {"charClasses": "0123456789.%m", "blankIdx": 0}
+    digit.write_text(json.dumps(base))
+    assert load_digit_meta(digit).preprocess == STRIP_V1  # models from before the field
+    digit.write_text(json.dumps({**base, "preprocess": STRIP_V2}))
+    assert load_digit_meta(digit).preprocess == STRIP_V2
+    word.write_text(json.dumps({"wordClasses": ["empty"], "preprocess": STRIP_V2}))
+    assert load_word_meta(word).preprocess == STRIP_V2
+    digit.write_text(json.dumps({**base, "preprocess": "strip_v9"}))  # a model newer than the app
+    with pytest.raises(ValueError, match="strip_v9"):
+        load_digit_meta(digit)
 
 
 def test_output_shapes(cpu: OrtEngine) -> None:
@@ -92,7 +108,7 @@ def test_digit_model_on_training_strips(cpu: OrtEngine) -> None:
     canvases, labels = [], []
     for path in sample:
         gray = _read_gray(path)
-        canvas = preprocess_strip(gray)
+        canvas = preprocess_strip(gray, version=STRIP_V1)
         reference = legacy.preprocess(gray)
         assert (canvas is None) == (reference is None)
         if canvas is not None:
@@ -112,7 +128,7 @@ def test_word_model_reads_training_words(cpu: OrtEngine) -> None:
         folder = WORDS / cls
         files = sorted(folder.glob("*.png")) + sorted(folder.glob("*.jpg"))
         for path in rng.sample(files, min(8, len(files))):
-            canvas = preprocess_strip(_read_gray(path))
+            canvas = preprocess_strip(_read_gray(path), version=cpu.word_preprocess)
             if canvas is not None:
                 canvases.append(canvas)
                 labels.append(cls)

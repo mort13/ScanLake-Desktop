@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from scanlake_core.decode import ctc_greedy, softmax
-from scanlake_core.preprocess import preprocess_strip, to_input
+from scanlake_core.preprocess import preprocess_of, preprocess_strip, to_input
 from scanlake_training import data
 
 BATCH = 64
@@ -27,6 +27,7 @@ class _Runner:
             stem.with_suffix(".json").read_text(encoding="utf-8")
         )
         self.kind = "word" if "wordClasses" in self.meta else "digit"
+        self.preprocess = preprocess_of(self.meta)  # the model reads only its own canvases
         if stem.with_suffix(".onnx").exists():
             import onnxruntime as ort
 
@@ -65,7 +66,7 @@ def evaluate_model(stem: Path, folder: Path) -> dict[str, Any]:
         chunk = samples[start : start + BATCH]
         canvases, kept = [], []
         for s in chunk:
-            canvas = preprocess_strip(data.load_gray(s.path))
+            canvas = preprocess_strip(data.load_gray(s.path), version=runner.preprocess)
             if canvas is None:  # blank: the app reads "" here
                 total += 1
                 hit = s.label in ("", "empty")

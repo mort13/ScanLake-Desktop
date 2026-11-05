@@ -5,8 +5,9 @@ Folder layouts (the same as Rock Capture CNN, so existing data keeps working):
     strips:  <folder>/<label>_<n>.png          e.g. 42.50_000123.png   (label before the last _)
     words:   <folder>/<class>/<anything>.png   e.g. quartz/synth_00012.png
 
-Images go through the inference preprocessing (`scanlake_core.preprocess.resize_pad`), so
-training and recognition see identical inputs.
+Images go through the inference preprocessing (`scanlake_core.preprocess.resize_pad`) in its
+current version, `PREPROCESS_VERSION`, which the trained model's metadata then names, so training
+and recognition see identical inputs.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from scanlake_core.preprocess import Gray, resize_pad
+from scanlake_core.preprocess import PREPROCESS_VERSION, Gray, resize_pad
 from scanlake_models.digit_crnn import CHAR_CLASSES, TIME_STEPS
 from scanlake_training.augment import STRIP, WORD, Preset, augment
 
@@ -103,7 +104,7 @@ class _ImageDataset(Dataset[tuple[Tensor, Tensor]]):
         return len(self.samples)
 
     def _canvas(self, index: int) -> Tensor:
-        canvas = resize_pad(load_gray(self.samples[index].path))
+        canvas = resize_pad(load_gray(self.samples[index].path), version=PREPROCESS_VERSION)
         if self.augment:
             # torch's RNG advances per call (and is seeded per DataLoader worker and epoch), so
             # every epoch sees new augmentations while torch.manual_seed keeps runs reproducible

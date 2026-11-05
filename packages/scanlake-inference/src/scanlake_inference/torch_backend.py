@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from scanlake_core.decode import Floats
+from scanlake_core.preprocess import preprocess_of
 from scanlake_inference.metadata import ModelFiles
 from scanlake_models import checkpoint
 
@@ -26,6 +27,8 @@ class TorchEngine:
         self._digit_classes = str(digit_meta["charClasses"])
         self._blank = int(digit_meta.get("blankIdx", 0))
         self._word_classes = tuple(word_meta["wordClasses"])
+        self._digit_preprocess = preprocess_of(digit_meta)
+        self._word_preprocess = preprocess_of(word_meta)
 
     @property
     def name(self) -> str:
@@ -42,6 +45,14 @@ class TorchEngine:
     @property
     def word_classes(self) -> tuple[str, ...]:
         return self._word_classes
+
+    @property
+    def digit_preprocess(self) -> str:
+        return self._digit_preprocess
+
+    @property
+    def word_preprocess(self) -> str:
+        return self._word_preprocess
 
     @torch.inference_mode()
     def digits(self, batch: Floats) -> Floats:

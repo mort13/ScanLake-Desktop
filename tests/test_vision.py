@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from scanlake_core.geometry import apply
-from scanlake_core.preprocess import preprocess_strip
+from scanlake_core.preprocess import STRIP_V1, STRIP_V2, background_level, preprocess_strip
 from scanlake_core.profile.model import FilterSettings, HudProfile
 from scanlake_core.vision.anchors import AnchorLocator, load_templates
 from scanlake_core.vision.filters import apply_filters
@@ -38,11 +38,44 @@ CROPS += [np.full((19, 41, 3), 30, np.uint8), np.zeros((5, 5, 3), np.uint8)]
 @pytest.mark.parametrize("index", range(len(CROPS)))
 def test_preprocess_bit_exact(index: int) -> None:
     crop = CROPS[index]
-    ours, theirs = preprocess_strip(crop), legacy.preprocess(crop)
+    ours, theirs = preprocess_strip(crop, version=STRIP_V1), legacy.preprocess(crop)
     if theirs is None:
         assert ours is None
     else:
         assert ours is not None and np.array_equal(ours, theirs)
+
+
+@pytest.mark.parametrize("index", range(6))
+def test_strip_v2_is_v1_on_dark_rock(index: int) -> None:
+    """Dark background, bright text: both crops keep exactly the text."""
+    v1 = preprocess_strip(CROPS[index], version=STRIP_V1)
+    v2 = preprocess_strip(CROPS[index], version=STRIP_V2)
+    assert v1 is not None and v2 is not None and np.array_equal(v1, v2)
+
+
+def test_strip_v2_crops_grey_rock_to_the_text() -> None:
+    """Grey rock is brighter than 35 % of the peak, so v1 keeps it all and the text stays small;
+    v2 measures from the background and the text fills the canvas height."""
+    crop = np.random.default_rng(5).integers(100, 121, size=(30, 80), dtype=np.uint8)
+    crop[9:21, 4:40] = 250  # 12 rows of text in a 30-row ROI
+    v1 = preprocess_strip(crop, version=STRIP_V1)
+    v2 = preprocess_strip(crop, version=STRIP_V2)
+    assert v1 is not None and v2 is not None
+
+    def text_rows(canvas: np.ndarray) -> int:
+        return int((canvas > 200).any(axis=1).sum())
+
+    assert text_rows(v1) < 16 and text_rows(v2) == 32
+
+
+def test_background_level_is_the_20th_percentile_pixel() -> None:
+    gray = np.arange(25, dtype=np.uint8)[::-1].reshape(5, 5)  # the order does not matter
+    assert background_level(gray) == 5  # index 25 * 20 // 100 of the sorted values
+
+
+def test_unknown_preprocessing_is_refused() -> None:
+    with pytest.raises(ValueError, match="strip_v9"):
+        preprocess_strip(np.zeros((8, 8), np.uint8), version="strip_v9")  # even a blank crop
 
 
 @pytest.mark.parametrize(

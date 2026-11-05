@@ -3,8 +3,9 @@
 Strips: digit glyphs composited side by side on HUD background crops, in the formats the HUD
 shows (12.34, 56%, 123456, 12.34%, and 25.26m for volumes under 1 SCU). Most strips frame the
 text like a real ROI does (background margins, left- or right-aligned, see `Framing`): on bright
-backgrounds the autocrop cannot remove those margins, and models trained on tight strips only
-misread such crops. Words: a resource/deposit
+backgrounds strip_v1's autocrop cannot remove those margins, and models trained on tight strips
+only misread such crops (strip_v2 trims most of them; rock texture brighter than its threshold
+still leaves some). Words: a resource/deposit
 name template (sometimes followed by "ore"/"raw") on a background crop; the `empty` class is
 background only.
 
@@ -247,7 +248,8 @@ def compose_strip(
 
     Without `framing` the crop is as tall as the layout and as wide as the text (what the first
     models were trained on). With it, the crop is a ROI around the text, which on a bright
-    background survives the autocrop: the model then sees smaller text with background around it.
+    background survives strip_v1's autocrop: the model then sees smaller text with background
+    around it.
     """
     glyph_h = max(4, int(STRIP_H * rng.uniform(0.65, 0.95)))
     # The digit glyphs carry a faint row or two around the ink: measure the ink of "0"

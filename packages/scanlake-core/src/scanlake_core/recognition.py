@@ -38,6 +38,13 @@ class Engine(Protocol):
     def word_classes(self) -> tuple[str, ...]: ...
     @property
     def blank_index(self) -> int: ...
+    @property
+    def digit_preprocess(self) -> str:
+        """The preprocessing the digit model was trained with (see scanlake_core.preprocess)."""
+        ...
+
+    @property
+    def word_preprocess(self) -> str: ...
     def digits(self, batch: Floats) -> Floats:
         """[N, 1, 32, 256] -> [T, N, C] log-probabilities."""
         ...
@@ -122,12 +129,17 @@ class FrameRecognizer:
 
         readings: dict[str, RoiReading] = {}
         pending: dict[str, list[_Pending]] = {DIGIT_CRNN: [], WORD_CNN: []}
+        version = {DIGIT_CRNN: self.engine.digit_preprocess, WORD_CNN: self.engine.word_preprocess}
         for p in placed:
             roi = p.roi
             image = crop(frame, p.rect)
             if roi.recognition_mode == DIGIT_CRNN and image.size:
                 image = apply_filters(image, roi.filters)
-            canvas = preprocess_strip(image) if image.size else None
+            canvas = (
+                preprocess_strip(image, version=version[roi.recognition_mode])
+                if image.size
+                else None
+            )
             if canvas is None:
                 kept = image if self.keep_images and image.size else None
                 readings[roi.name] = RoiReading(
