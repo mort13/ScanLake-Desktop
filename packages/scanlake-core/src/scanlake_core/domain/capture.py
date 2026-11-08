@@ -6,6 +6,8 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 
+from scanlake_core.domain.position import Position
+
 ValueSource = Literal["ocr", "manual"]
 
 
@@ -55,6 +57,9 @@ class Capture:
     context: dict[str, str] = field(default_factory=dict)  # system, gravity_well, region, ...
     scan: dict[str, FieldValue] = field(default_factory=dict)
     rows: list[Row] = field(default_factory=list)
+    # Where the ship was (the game's debug text), read when the scan was staged. Kept out of
+    # `scan`: it is not a HUD value, is never edited and does not count for duplicates.
+    position: Position | None = None
 
     def value(self, column: str) -> str:
         found = self.scan.get(column)

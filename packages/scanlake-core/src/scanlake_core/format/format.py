@@ -15,8 +15,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-# The file kinds an upload consists of (the Store's FILE_KINDS).
-UPLOAD_KINDS: tuple[str, ...] = ("scans", "compositions", "confidences")
+# The file kinds an upload consists of (the Store's FILE_KINDS). `confidences` and `positions`
+# may be left out of an upload; `positions` is only sent when the player opts in.
+UPLOAD_KINDS: tuple[str, ...] = ("scans", "compositions", "confidences", "positions")
 
 # Type names a column spec may use (the Store's COLUMN_TYPES).
 COLUMN_TYPES: frozenset[str] = frozenset(

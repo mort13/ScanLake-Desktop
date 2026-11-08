@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from scanlake_core.geometry import REFERENCE_HEIGHT, Rect
+from scanlake_core.vision import debug_text
 
 REFERENCE_WIDTH = 2560
 BLACK_LEVEL = 6  # max pixel value below which a frame counts as black (fullscreen-exclusive)
@@ -33,6 +34,12 @@ class Monitor:
     def scale(self) -> float:
         """HUD scale relative to the 2560x1440 reference (the HUD scales with screen height)."""
         return self.height / REFERENCE_HEIGHT
+
+    @property
+    def debug_text_rect(self) -> Rect:
+        """The top-right corner where the game draws its debug text (r_DisplayInfo)."""
+        x, y, w, h = debug_text.corner_rect(self.width, self.height)
+        return Rect(self.left + x, self.top + y, w, h)
 
     def label(self) -> str:
         primary = " (primary)" if self.primary else ""

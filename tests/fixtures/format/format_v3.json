@@ -1,0 +1,68 @@
+{
+  "version": 3,
+  "files": {
+    "scans": {
+      "description": "One row per scanned deposit.",
+      "allowExtraColumns": false,
+      "columns": [
+        { "name": "session_id",   "type": "STRING", "description": "UUID v4 of the capture session." },
+        { "name": "user_id",      "type": "STRING", "description": "UUID v4 of the uploading user." },
+        { "name": "user_name",    "type": "STRING", "description": "Display name of the user." },
+        { "name": "org",          "type": "STRING", "description": "Organisation of the user." },
+        { "name": "timestamp",    "type": "STRING", "description": "Capture time, ISO 8601 UTC (e.g. 2026-06-24T09:01:12.345Z)." },
+        { "name": "capture_id",   "type": "STRING", "description": "UUID v4 of the scan; joins to compositions and confidences." },
+        { "name": "cluster_id",   "type": "STRING", "description": "UUID v4 grouping scans of the same rock cluster." },
+        { "name": "system",       "type": "STRING", "description": "Star system." },
+        { "name": "gravity_well", "type": "STRING", "description": "Planet, moon or belt." },
+        { "name": "region",       "type": "STRING", "description": "Region within the gravity well, \"none\" if unset." },
+        { "name": "place",        "type": "STRING", "description": "Named place, \"none\" if unset." },
+        { "name": "deposit",      "type": "STRING", "description": "Deposit type, \"none\" if unset." },
+        { "name": "mass",         "type": ["INT32", "DOUBLE"], "description": "Mass from the scan. Whole numbers, except deposits under 1 SCU (volume shown in mSCU), whose mass has decimals (e.g. 12.34): write DOUBLE for those." },
+        { "name": "resistance",   "type": "INT32",  "description": "Resistance from the scan." },
+        { "name": "instability",  "type": "DOUBLE", "description": "Instability from the scan." },
+        { "name": "volume",       "type": "DOUBLE", "description": "Volume from the scan, in SCU (the HUD shows mSCU under 1 SCU: 25.26m SCU = 0.02526)." }
+      ]
+    },
+    "compositions": {
+      "description": "One row per material of a scan.",
+      "allowExtraColumns": false,
+      "columns": [
+        { "name": "capture_id",      "type": "STRING", "description": "UUID v4 of the parent scan." },
+        { "name": "mat_index",       "type": "INT32",  "description": "0-based position of the material in the scan result." },
+        { "name": "type",            "type": "STRING", "description": "Material name." },
+        { "name": "amount",          "type": "DOUBLE", "description": "Share of the deposit in percent, 2 decimals." },
+        { "name": "quality",         "type": "INT32",  "description": "Material quality." },
+        { "name": "material_volume", "type": "DOUBLE", "description": "volume * amount / 100 of the parent scan." },
+        { "name": "min_confidence",  "type": "DOUBLE", "description": "Lowest OCR confidence of the row, 0..1." }
+      ]
+    },
+    "confidences": {
+      "description": "OCR confidence per scan field, 0..1.",
+      "allowExtraColumns": false,
+      "columns": [
+        { "name": "capture_id",       "type": "STRING", "description": "UUID v4 of the parent scan." },
+        { "name": "deposit_conf",     "type": "DOUBLE" },
+        { "name": "mass_conf",        "type": "DOUBLE" },
+        { "name": "resistance_conf",  "type": "DOUBLE" },
+        { "name": "instability_conf", "type": "DOUBLE" },
+        { "name": "volume_conf",      "type": "DOUBLE" }
+      ]
+    },
+    "positions": {
+      "description": "Optional. Where the ship was when the scan was taken, read from the game's debug text (r_DisplayInfo): one row per \"Zone: <name> Pos: x y z\" line.",
+      "allowExtraColumns": false,
+      "columns": [
+        { "name": "capture_id", "type": "STRING", "description": "UUID v4 of the parent scan." },
+        { "name": "zone_index", "type": "INT32",  "description": "0-based position of the Zone line in the debug text, top first (0 is usually the ship)." },
+        { "name": "zone",       "type": "STRING", "description": "Zone name as shown, e.g. ab_mine_pyro_regionb_sml_001, SolarSystem_906804811333, Root." },
+        { "name": "pos_x",      "type": "DOUBLE", "description": "Position in the zone, in metres (the game shows m or km)." },
+        { "name": "pos_y",      "type": "DOUBLE", "description": "Position in the zone, in metres." },
+        { "name": "pos_z",      "type": "DOUBLE", "description": "Position in the zone, in metres." },
+        { "name": "cam_dir_x",  "type": "DOUBLE", "description": "First CamDir value as shown, in degrees; the same on every row of a scan. Empty if CamDir was not read." },
+        { "name": "cam_dir_y",  "type": "DOUBLE", "description": "Second CamDir value as shown, in degrees." },
+        { "name": "cam_dir_z",  "type": "DOUBLE", "description": "Third CamDir value as shown, in degrees." },
+        { "name": "confidence", "type": "DOUBLE", "description": "Lowest OCR match score of the line, 0..1." }
+      ]
+    }
+  }
+}

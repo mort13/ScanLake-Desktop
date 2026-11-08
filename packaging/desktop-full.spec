@@ -13,7 +13,9 @@ ROOT = Path(SPECPATH).parent
 APP = ROOT / "apps" / "desktop" / "src" / "scanlake_desktop"
 
 datas = [(str(ROOT / "assets"), "assets")]
-datas += collect_data_files("scanlake_core", includes=["domain/data/*.json"])
+datas += collect_data_files(
+    "scanlake_core", includes=["domain/data/*.json", "resources/display_info_font/*"]
+)
 datas += collect_data_files("scanlake_training", includes=["resources/**/*"])
 binaries = collect_dynamic_libs("onnxruntime")  # includes DirectML.dll
 

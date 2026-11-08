@@ -1,8 +1,10 @@
 """Local SQLite store: sessions, clusters, captures and the upload queue.
 
 Capture values are stored per (kind, row, column), not in fixed columns, so a format that
-gains a column needs no migration here. sqlite3 connections are per thread: the GUI and the
-upload worker each open their own `Database` on the same file (WAL mode).
+gains a column needs no migration here. Ship positions (the game's debug text) have their own
+table, one row per Zone line; new tables appear through `CREATE TABLE IF NOT EXISTS` on open.
+sqlite3 connections are per thread: the GUI and the upload worker each open their own
+`Database` on the same file (WAL mode).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scanlake_core.domain.capture import Capture, FieldValue, utc_timestamp
+from scanlake_core.domain.position import Position, ZonePosition
 from scanlake_core.schema_map import COMPOSITIONS, SCANS
 
 SCHEMA = """
@@ -61,6 +64,19 @@ CREATE TABLE IF NOT EXISTS capture_values (
     source      TEXT NOT NULL,
     ocr_value   TEXT,
     PRIMARY KEY (capture_id, kind, row_index, column_name)
+);
+CREATE TABLE IF NOT EXISTS capture_positions (
+    capture_id TEXT NOT NULL REFERENCES captures (capture_id) ON DELETE CASCADE,
+    zone_index INTEGER NOT NULL,  -- 0-based Zone line of the debug text, top first
+    zone       TEXT NOT NULL,
+    pos_x      REAL NOT NULL,     -- metres
+    pos_y      REAL NOT NULL,
+    pos_z      REAL NOT NULL,
+    cam_dir_x  REAL,              -- degrees as shown; the same on every row of a capture
+    cam_dir_y  REAL,
+    cam_dir_z  REAL,
+    confidence REAL NOT NULL,
+    PRIMARY KEY (capture_id, zone_index)
 );
 CREATE TABLE IF NOT EXISTS upload_batches (
     batch_id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,6 +281,9 @@ class Database:
                      capture.capture_id),
                 )  # fmt: skip
                 db.execute("DELETE FROM capture_values WHERE capture_id = ?", (capture.capture_id,))
+                db.execute(
+                    "DELETE FROM capture_positions WHERE capture_id = ?", (capture.capture_id,)
+                )
             else:
                 db.execute(
                     "INSERT INTO captures (capture_id, session_id, cluster_id, timestamp, context,"
@@ -275,6 +294,10 @@ class Database:
             db.executemany(
                 "INSERT INTO capture_values VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 list(_value_rows(capture)),
+            )
+            db.executemany(
+                "INSERT INTO capture_positions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                list(_position_rows(capture)),
             )
         return revision
 
@@ -319,7 +342,16 @@ class Database:
             f"SELECT * FROM capture_values WHERE capture_id IN ({marks})", ids
         ):
             values[v["capture_id"]].append(v)
-        return [_capture_from(h, values[h["capture_id"]]) for h in heads]
+        positions: dict[str, list[sqlite3.Row]] = {i: [] for i in ids}
+        for p in self._db.execute(
+            f"SELECT * FROM capture_positions WHERE capture_id IN ({marks})"
+            " ORDER BY capture_id, zone_index",
+            ids,
+        ):
+            positions[p["capture_id"]].append(p)
+        return [
+            _capture_from(h, values[h["capture_id"]], positions[h["capture_id"]]) for h in heads
+        ]
 
     def upload_state(self, session_id: str) -> dict[str, str]:
         """capture_id -> 'uploaded' | 'pending' (latest revision not uploaded yet)."""
@@ -463,13 +495,38 @@ def _value_rows(capture: Capture) -> Iterator[tuple[object, ...]]:
             )  # fmt: skip
 
 
-def _capture_from(head: sqlite3.Row, values: list[sqlite3.Row]) -> Capture:
+def _position_rows(capture: Capture) -> Iterator[tuple[object, ...]]:
+    position = capture.position
+    if position is None:
+        return
+    cam = position.cam_dir or (None, None, None)
+    for z in position.zones:
+        yield (capture.capture_id, z.index, z.zone, z.x, z.y, z.z, *cam, z.confidence)
+
+
+def _position_from(rows: list[sqlite3.Row]) -> Position | None:
+    if not rows:
+        return None
+    first = rows[0]
+    cam = (first["cam_dir_x"], first["cam_dir_y"], first["cam_dir_z"])
+    zones = tuple(
+        ZonePosition(r["zone_index"], r["zone"], r["pos_x"], r["pos_y"], r["pos_z"],
+                     confidence=r["confidence"])
+        for r in rows
+    )  # fmt: skip
+    return Position(zones=zones, cam_dir=None if None in cam else cam)
+
+
+def _capture_from(
+    head: sqlite3.Row, values: list[sqlite3.Row], positions: list[sqlite3.Row]
+) -> Capture:
     capture = Capture(
         capture_id=head["capture_id"],
         session_id=head["session_id"],
         cluster_id=head["cluster_id"],
         timestamp=head["timestamp"],
         context=json.loads(head["context"] or "{}"),
+        position=_position_from(positions),
     )
     n_rows = 1 + max((v["row_index"] for v in values), default=-1)
     capture.rows = [{} for _ in range(n_rows)]

@@ -21,6 +21,7 @@ from scanlake_core.schema_map import COMPOSITIONS, SCANS, SlotLayout
 
 CONFIDENCES = "confidences"
 CONF_SUFFIX = "_conf"
+POSITIONS = "positions"  # the ship position per scan, from the game's debug text (optional)
 
 # Columns the app fills from its own state, per file kind
 CONTEXT_COLUMNS: dict[str, frozenset[str]] = {
@@ -34,11 +35,26 @@ CONTEXT_COLUMNS: dict[str, frozenset[str]] = {
     ),
     COMPOSITIONS: frozenset({"capture_id"}),
     CONFIDENCES: frozenset({"capture_id"}),
+    POSITIONS: frozenset({"capture_id"}),
 }  # fmt: skip
 
 # Columns computed from other values, per file kind (see `scanlake_core.domain.rows`)
 DERIVED_COLUMNS: dict[str, frozenset[str]] = {
     COMPOSITIONS: frozenset({"mat_index", "material_volume", "min_confidence"}),
+    # From `Capture.position`, one row per Zone line
+    POSITIONS: frozenset(
+        {
+            "zone_index",
+            "zone",
+            "pos_x",
+            "pos_y",
+            "pos_z",
+            "cam_dir_x",
+            "cam_dir_y",
+            "cam_dir_z",
+            "confidence",
+        }
+    ),  # fmt: skip
 }
 
 

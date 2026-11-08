@@ -7,6 +7,10 @@ leave as `LiveState` objects (plain data) through a Qt signal, at most ~10 per s
 While the HUD is not found the loop slows to 2 frames per second, and every few seconds it
 searches the whole monitor at the expected scale to find where the HUD actually is. A frame that
 fails (screen not readable, bad region) is reported once and skipped; it never ends the loop.
+
+The loop also reads the ship position from the game's debug text in the top-right corner
+(r_DisplayInfo), HUD or not (the live panel previews it), about once a second, or every few
+seconds while there is none.
 """
 
 from __future__ import annotations
@@ -20,11 +24,13 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QThread, Signal
 
+from scanlake_core.domain.position import Position, parse_position
 from scanlake_core.geometry import Rect, apply
 from scanlake_core.preprocess import Gray, to_gray
 from scanlake_core.profile.model import HudProfile
 from scanlake_core.recognition import Engine, FrameRecognizer, RoiReading
 from scanlake_core.vision.anchors import AnchorLocator
+from scanlake_core.vision.debug_text import DebugTextReader, corner
 from scanlake_core.voting import Observation, RoiVoter, Vote
 from scanlake_desktop.capture.source import (
     CaptureSource,
@@ -42,6 +48,9 @@ log = logging.getLogger(__name__)
 SEARCH_FPS = 2.0
 WIDE_SEARCH_EVERY_S = 3.0
 LOST_RESET_S = 1.0
+POSITION_EVERY_S = 1.0  # debug-text reads while it is visible ...
+POSITION_IDLE_S = 3.0  # ... and while it is not (r_DisplayInfo off)
+POSITION_FRESH_S = 2.5  # a staged scan takes the debug-text position only if this fresh
 EMIT_EVERY_S = 0.1
 MIN_REGION = 32  # px: a smaller capture region cannot hold the HUD
 
@@ -80,6 +89,10 @@ class LiveState:
     timings: dict[str, float] = field(default_factory=dict)
     frame: np.ndarray | None = None  # debug only
     anchors: dict[str, tuple[float, float, int, int, float]] = field(default_factory=dict)
+    position: Position | None = None  # the last ship position read from the debug text ...
+    position_t: float = 0.0  # ... and when (time.time(); 0 = never)
+    # (text, score) of the CamDir and Zone lines the latest read saw, parsed or not
+    position_lines: tuple[tuple[str, float], ...] = ()
 
 
 class PipelineWorker(QThread):
@@ -137,6 +150,12 @@ class _Loop:
         self.last_emit = 0.0
         self.frame_times: list[float] = []
         self.last_problem = ""
+        self.position_reader: DebugTextReader | None = None  # loads the fonts on first use
+        self.position: Position | None = None
+        self.position_t = 0.0
+        self.position_lines: tuple[tuple[str, float], ...] = ()
+        self.last_position_try = 0.0
+        self.position_failed = False
 
     def close(self) -> None:
         if self.source is not None:
@@ -281,6 +300,7 @@ class _Loop:
             ):
                 self.last_wide = now
                 self._wide_search(expected)
+        self._read_position(now, frame)
 
         self.frame_times.append(now)
         self.frame_times = [t for t in self.frame_times if now - t < 2.0]
@@ -306,9 +326,44 @@ class _Loop:
                     timings=result.timings,
                     frame=frame if self.config.debug else None,
                     anchors=anchors,
+                    position=self.position,
+                    position_t=self.position_t,
+                    position_lines=self.position_lines,
                 )
             )
         return result.locked
+
+    def _read_position(self, now: float, frame: np.ndarray) -> None:
+        """Reads the debug text now and then; keeps the last position that parsed.
+
+        A replayed frame is a whole screen (or a region without the corner), so its corner is
+        cut from it; the screen's corner is grabbed on its own. Failures never stop capturing.
+        """
+        assert self.config is not None and self.source is not None
+        seen = self.position is not None and now - self.position_t < POSITION_IDLE_S
+        if now - self.last_position_try < (POSITION_EVERY_S if seen else POSITION_IDLE_S):
+            return
+        self.last_position_try = now
+        try:
+            if self.position_reader is None:
+                self.position_reader = DebugTextReader()
+            if not self.position_reader.usable:
+                return
+            image = (
+                corner(frame) if self.config.replay
+                else self.source.grab(self.config.monitor.debug_text_rect)
+            )  # fmt: skip
+            lines = self.position_reader.read(image)
+            self.position_lines = tuple((line.text, line.score) for line in lines)
+            position = parse_position(self.position_lines)
+            self.position_failed = False
+        except Exception:
+            if not self.position_failed:
+                log.exception("reading the debug text failed")
+            self.position_failed = True
+            return
+        if position is not None:
+            self.position, self.position_t = position, now
 
     def _wide_search(self, expected: float) -> None:
         """Looks for the HUD on the whole monitor (only at the expected scale, to stay cheap)."""

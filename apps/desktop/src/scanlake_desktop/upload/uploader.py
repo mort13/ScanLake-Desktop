@@ -4,6 +4,9 @@ A batch is a list of (capture, revision). Its Parquet files are built when it is
 captures' current data and the current format, so a batch that waited through a format change
 is still valid. After a successful upload each capture is marked uploaded up to the batched
 revision; edits made meanwhile simply go out in the next batch (the Refinery keeps the latest).
+
+The `positions` file (ship positions from the game's debug text) is built and exported with the
+rest but only sent to the Store when the player opted in.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scanlake_core.domain.capture import Identity
-from scanlake_core.format import ParquetFormat, coverage_of_columns
+from scanlake_core.format import POSITIONS, ParquetFormat, coverage_of_columns
 from scanlake_desktop.db.database import BatchRow, Database
 from scanlake_io.parquet import FormatMismatch, build_batch
 from scanlake_io.store_client import StoreClient, StoreError
@@ -48,6 +51,7 @@ class Uploader:
     current_format: Callable[[], ParquetFormat]
     identity: Callable[[], Identity]
     export_dir: Callable[[], Path | None] = lambda: None
+    upload_positions: Callable[[], bool] = lambda: False
 
     def run_due(self, now: float | None = None) -> list[UploadOutcome]:
         return [self.send(batch) for batch in self.db.due_batches(now)]
@@ -73,8 +77,9 @@ class Uploader:
                 fmt, cov, captures, identity, tuple(row_columns),
                 session_id=batch.session_id, batch_number=batch.batch_number,
             )  # fmt: skip
+            sent = [f for f in files if f.kind != POSITIONS or self.upload_positions()]
             receipt = self.store.upload(
-                identity.user_id, batch.session_id, batch.batch_number, batch.is_final, files
+                identity.user_id, batch.session_id, batch.batch_number, batch.is_final, sent
             )
         except FormatMismatch as err:
             return self._failed(batch, f"Format v{fmt.version}: {err}", True, err.violations)

@@ -200,9 +200,20 @@ class SettingsDialog(QDialog):
         hint = QLabel("A session's scans upload when you close it, or right away with Upload now.")
         hint.setProperty("role", "hint")
         hint.setWordWrap(True)
+        self.upload_positions = QCheckBox("Upload ship positions")
+        self.upload_positions.setChecked(s.upload_positions)
+        positions_hint = QLabel(
+            "With the game's debug info on (r_DisplayInfo), each scan also records where the"
+            " ship was: its CamDir and Zone lines. They are always kept on this computer and in"
+            " saved batches; tick this to also upload them."
+        )
+        positions_hint.setProperty("role", "hint")
+        positions_hint.setWordWrap(True)
         form = QFormLayout()
         form.addRow(hint)
         form.addRow("Also save batches to", row)
+        form.addRow(self.upload_positions)
+        form.addRow(positions_hint)
         return _page(form)
 
     def _advanced_tab(self) -> QWidget:
@@ -284,6 +295,7 @@ class SettingsDialog(QDialog):
             new_cluster=self.key_cluster.key_name,
         )
         s.export_dir = self.export_dir.text().strip()
+        s.upload_positions = self.upload_positions.isChecked()
         s.dev_mode = self.dev_mode.isChecked()
         s.beep = self.beep.isChecked()
         s.collect_crops = self.collect_crops.isChecked()

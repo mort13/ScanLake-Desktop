@@ -65,6 +65,9 @@ class Settings(BaseModel):
     region: str = ""
     # Upload (a session uploads when it closes; older files' auto_upload/batch_size are ignored)
     export_dir: str = ""
+    # Ship positions read from the game's debug text are always kept locally (and in exported
+    # batches); they go to the Store only when the player opts in.
+    upload_positions: bool = False
     # Modes
     dev_mode: bool = False
     collect_crops: bool = False  # dev: save ROI crops of saved scans for training

@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from scanlake_core.domain.capture import Identity
+from scanlake_core.domain.position import Position
 from scanlake_core.format import Coverage, ParquetFormat, coverage, parse_format
 from scanlake_core.geometry import Rect
 from scanlake_core.recognition import RoiReading
@@ -34,7 +35,12 @@ from scanlake_desktop.ui.settings_dialog import SettingsDialog
 from scanlake_desktop.ui.style import ERROR
 from scanlake_desktop.upload.upload_worker import UploadWorker
 from scanlake_desktop.upload.uploader import FormatHolder
-from scanlake_desktop.worker.pipeline_worker import LiveState, PipelineWorker, WorkerConfig
+from scanlake_desktop.worker.pipeline_worker import (
+    POSITION_FRESH_S,
+    LiveState,
+    PipelineWorker,
+    WorkerConfig,
+)
 from scanlake_inference.registry import available_backends
 from scanlake_io.format_source import load_format
 from scanlake_io.store_client import StoreClient
@@ -88,6 +94,8 @@ class DesktopApp(QObject):
         self.editing = None
         self.staged_readings: dict[str, RoiReading] = {}  # crops of what was staged
         self.staged_region = Rect(0, 0, 0, 0)  # the capture region when it was staged
+        self.staged_position: Position | None = None  # the debug text when it was staged
+        self.positions_seen = False  # the debug text was read at least once this run
         self.debug_window = None
         self.profile_editor = None
 
@@ -117,6 +125,7 @@ class DesktopApp(QObject):
             self.formats,
             self.identity,
             lambda: Path(self.settings.export_dir) if self.settings.export_dir else None,
+            lambda: self.settings.upload_positions,
         )
         self.uploader.changed.connect(self._show_upload_summary)
         self.uploader.finished_batch.connect(self._batch_finished)
@@ -337,6 +346,7 @@ class DesktopApp(QObject):
         if self.stopped:
             return
         self.last_state = state
+        self.positions_seen = self.positions_seen or state.position is not None
         if state.ship == self.settings.ship:
             self.window.live.update_state(state)
             self.overlay.update_state(state)
@@ -373,7 +383,13 @@ class DesktopApp(QObject):
         self.editing = None
         self.staged_readings = dict(state.readings)
         self.staged_region = state.region
+        fresh = state.position is not None and state.t - state.position_t <= POSITION_FRESH_S
+        self.staged_position = state.position if fresh else None
         self.window.form.load(scan, rows, title, attention)
+        self.window.form.set_position(
+            self.staged_position,
+            "No position: the game's debug text was not readable" if self.positions_seen else "",
+        )
         self.staged = True
         self._revalidate()
         self.overlay.flash(title, "warn" if unstable else "info")
@@ -392,6 +408,7 @@ class DesktopApp(QObject):
         result = self.sessions.save(
             scan, rows, self.layout, self.cov, ship=self.ship.key,
             models=self.assets.model_versions(), editing=self.editing,
+            position=self.staged_position,
         )  # fmt: skip
         if result.duplicate:
             self._fail("This scan is already saved in this session")
@@ -429,6 +446,7 @@ class DesktopApp(QObject):
         self.staged = False
         self.editing = None
         self.staged_readings = {}
+        self.staged_position = None
         self.window.form.clear({"deposit": keep_deposit} if keep_deposit else None)
         self.overlay.set_staged(None)
 
@@ -506,9 +524,11 @@ class DesktopApp(QObject):
         self.editing = capture
         self.staged = True
         self.staged_readings = {}
+        self.staged_position = None  # an edited capture keeps its own position
         self.window.form.load(
             capture.scan, capture.rows, f"Editing scan from {capture.timestamp[11:19]}"
         )
+        self.window.form.set_position(capture.position)
         self._revalidate()
 
     def delete_capture(self, capture_id: str) -> None:

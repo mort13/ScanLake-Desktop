@@ -2,6 +2,7 @@
 
 from scanlake_core.format.bindings import (
     CONFIDENCES,
+    POSITIONS,
     ColumnBinding,
     Coverage,
     Source,
@@ -22,6 +23,7 @@ from scanlake_core.format.format import (
 __all__ = [
     "COLUMN_TYPES",
     "CONFIDENCES",
+    "POSITIONS",
     "UPLOAD_KINDS",
     "ColumnBinding",
     "ColumnSpec",

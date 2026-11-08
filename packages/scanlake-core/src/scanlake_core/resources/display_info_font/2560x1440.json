@@ -1,0 +1,7 @@
+{
+  "chars": ",-.0123456789:CDFGHIMOPRSTVZ_abcdefgiklmnoprstwy",
+  "advance": 7.5,
+  "cell_w": 7,
+  "cell_h": 13,
+  "source": "2560x1440"
+}

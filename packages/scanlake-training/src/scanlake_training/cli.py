@@ -9,6 +9,8 @@
     scanlake-train evaluate MODEL --data DIR       # accuracy of a .onnx or .safetensors model
     scanlake-train checkpoint convert OLD.pth OUT_STEM
     scanlake-train checkpoint show STEM
+    scanlake-train font cut SHOT.png [...] [--name N]   # debug-text font from SHOT.txt transcripts
+    scanlake-train font read SHOT.png                   # what the debug-text reader sees
 
 Without --val-data, a fixed 15 % of the training folder (chosen by file name hash) validates.
 Use --val-data with real captures (the desktop app's correction crops) for honest numbers.
@@ -176,6 +178,18 @@ def _show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _font_cut(args: argparse.Namespace) -> int:
+    from scanlake_training import debug_font
+
+    return debug_font.run_cut(args.shots, args.name, args.advance, args.out)
+
+
+def _font_read(args: argparse.Namespace) -> int:
+    from scanlake_training import debug_font
+
+    return debug_font.run_read(args.shot, args.font)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scanlake-train", description="ScanLake model tooling.")
     sub = parser.add_subparsers(dest="group", required=True)
@@ -237,6 +251,19 @@ def main(argv: list[str] | None = None) -> int:
     show = csub.add_parser("show", help="print a checkpoint's metadata")
     show.add_argument("stem")
     show.set_defaults(run=_show)
+
+    f = sub.add_parser("font", help="the game's debug-text font (ship positions)")
+    fsub = f.add_subparsers(dest="command", required=True)
+    fcut = fsub.add_parser("cut", help="build the font from screenshots + SHOT.txt transcripts")
+    fcut.add_argument("shots", nargs="+", help="lossless whole-screen PNGs")
+    fcut.add_argument("--name", help="font name (default: the screen size)")
+    fcut.add_argument("--advance", type=float, help="cell pitch in px (default: fitted)")
+    fcut.add_argument("--out", help="folder (default: the shipped fonts in scanlake_core)")
+    fcut.set_defaults(run=_font_cut)
+    fread = fsub.add_parser("read", help="read the debug text of a screenshot")
+    fread.add_argument("shot")
+    fread.add_argument("--font", help="font folder (default: the shipped fonts)")
+    fread.set_defaults(run=_font_read)
 
     args = parser.parse_args(argv)
     return args.run(args)

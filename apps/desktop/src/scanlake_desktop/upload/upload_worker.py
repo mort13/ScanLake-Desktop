@@ -30,6 +30,7 @@ class UploadWorker(QThread):
         formats: FormatHolder,
         identity: Callable[[], Identity],
         export_dir: Callable[[], Path | None],
+        upload_positions: Callable[[], bool] = lambda: False,
     ) -> None:
         super().__init__()
         self._db_path = db_path
@@ -37,6 +38,7 @@ class UploadWorker(QThread):
         self._formats = formats
         self._identity = identity
         self._export_dir = export_dir
+        self._upload_positions = upload_positions
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._force = False
@@ -54,8 +56,9 @@ class UploadWorker(QThread):
     def run(self) -> None:
         db = Database(self._db_path)  # sqlite connections stay in their thread
         uploader = Uploader(
-            db, self._store, lambda: self._formats.fresh(), self._identity, self._export_dir
-        )
+            db, self._store, lambda: self._formats.fresh(), self._identity, self._export_dir,
+            self._upload_positions,
+        )  # fmt: skip
         try:
             while not self._stop.is_set():
                 force, self._force = self._force, False

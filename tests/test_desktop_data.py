@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import time
 from pathlib import Path
 
@@ -157,6 +158,30 @@ def test_upload_success_and_reupload_after_edit(
     service.save(scan, rows, layout, cov, ship="mole", editing=editing)
     assert db.upload_state(service.session.session_id)[saved.capture_id] == "pending"  # type: ignore[union-attr]
     assert service.queue_upload() == 2
+
+
+def _form(request: httpx.Request) -> dict[str, bytes]:
+    """The fields and files of a multipart upload, by name."""
+    boundary = request.headers["Content-Type"].split("boundary=")[1].encode()
+    form: dict[str, bytes] = {}
+    for part in request.content.split(b"--" + boundary)[1:-1]:
+        head, _, body = part.partition(b"\r\n\r\n")
+        name = re.search(rb'name="([^"]+)"', head)
+        assert name is not None
+        form[name[1].decode()] = body.removesuffix(b"\r\n")
+    return form
+
+
+def _mock_upload(router: respx.Router) -> list[dict[str, bytes]]:
+    """Accepts every upload; returns the forms the Store received."""
+    sent: list[dict[str, bytes]] = []
+
+    def upload(request: httpx.Request) -> httpx.Response:
+        sent.append(_form(request))
+        return httpx.Response(200, json={"ok": True, "keys": ["k1", "k2", "k3"]})
+
+    router.post(f"{STORE}/api/upload").mock(side_effect=upload)
+    return sent
 
 
 @respx.mock

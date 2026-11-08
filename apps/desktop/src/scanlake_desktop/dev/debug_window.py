@@ -3,6 +3,8 @@
 A snapshot folder is a golden test fixture in the making:
 
     <snapshots>/<ship>/<WxH>/<timestamp>/frame.png      the captured region
+                                         screen.png     the whole monitor (debug-text samples;
+                                                        shows session/server ids: never commit)
                                          capture.json   ship, region, monitor, scale, backend
                                          observed.json  what was read (per ROI: text, confidence)
                                          expected.json  copy of observed.json: correct it by hand
@@ -13,6 +15,7 @@ Move the folder to tests/fixtures/golden/ once expected.json is right.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -33,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from scanlake_desktop.capture.source import Monitor, write_image
+from scanlake_desktop.capture.source import Monitor, MssSource, write_image
 from scanlake_desktop.worker.pipeline_worker import LiveState
 
 
@@ -132,6 +135,7 @@ class DebugWindow(QWidget):
         )
         folder.mkdir(parents=True, exist_ok=True)
         write_image(folder / "frame.png", state.frame)
+        self._save_screen(folder / "screen.png")
         capture = {
             "ship": state.ship,
             "monitor": asdict(self._monitor),
@@ -140,6 +144,7 @@ class DebugWindow(QWidget):
             "scale": state.scale,
             "locked": state.locked,
             "backend": state.backend,
+            "position": state.position.details() if state.position else None,
         }
         observed = {
             name: {"text": r.text, "raw": r.raw_text, "confidence": round(r.confidence, 4),
@@ -152,3 +157,14 @@ class DebugWindow(QWidget):
                                ("expected.json", expected)):  # fmt: skip
             (folder / filename).write_text(json.dumps(data, indent=2), encoding="utf-8")
         self.snapshot_saved.emit(str(folder))
+
+    def _save_screen(self, path: Path) -> None:
+        """The whole game monitor, lossless: samples for the debug-text font (dev only)."""
+        try:
+            source = MssSource()  # mss handles are per thread: this one lives on the GUI thread
+            try:
+                write_image(path, source.grab(self._monitor.rect))
+            finally:
+                source.close()
+        except Exception as err:  # a snapshot without the screen is still useful
+            logging.getLogger(__name__).warning("could not save %s: %s", path.name, err)

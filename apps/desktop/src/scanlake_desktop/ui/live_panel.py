@@ -1,4 +1,5 @@
-"""What the capture loop sees right now: HUD lock, speed, and the voted value of every field."""
+"""What the capture loop sees right now: HUD lock, speed, the voted value of every field, and the
+ship position read from the game's debug text."""
 
 from __future__ import annotations
 
@@ -13,14 +14,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from scanlake_core.domain.position import Position
 from scanlake_core.schema_map import SlotLayout
 from scanlake_core.voting import Stability
 from scanlake_desktop.ui.style import ERROR, MUTED, OK, WARN
-from scanlake_desktop.worker.pipeline_worker import LiveState
+from scanlake_desktop.worker.pipeline_worker import POSITION_FRESH_S, LiveState
 from scanlake_inference.registry import LABELS
 
 DOT = "●"
 STABILITY_COLOR = {Stability.STABLE: OK, Stability.UNSTABLE: WARN, Stability.EMPTY: MUTED}
+LOCAL = "◂ local"
+
+
+def position_text(position: Position) -> str:
+    """CamDir and every Zone line, the local zone (the one a map places the scan in) marked."""
+    lines = []
+    if position.cam_dir is not None:
+        lines.append("CamDir: " + " ".join(f"{v:g}" for v in position.cam_dir))
+    local = position.local_zone
+    for zone in position.zones:
+        mark = f"   {LOCAL}" if zone is local else ""
+        lines.append(f"{zone.zone}: {zone.readable()}{mark}")
+    return "\n".join(lines)
 
 
 class LivePanel(QWidget):
@@ -40,11 +55,19 @@ class LivePanel(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._rois: list[str] = []
+        self._position_title = QLabel()
+        self._position_title.setStyleSheet("font-weight: 600")
+        self._position = QLabel()
+        self._position.setWordWrap(True)
+        self._position.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         box = QVBoxLayout(self)
         box.addWidget(self._status)
         box.addWidget(self._detail)
         box.addWidget(self._table, 1)
+        box.addWidget(self._position_title)
+        box.addWidget(self._position)
+        self._set_position_title("Ship position: not read", MUTED)
 
     def set_layout(self, layout: SlotLayout) -> None:
         rows: list[tuple[str, str]] = [(s.roi, s.column) for s in layout.scan]
@@ -91,3 +114,35 @@ class LivePanel(QWidget):
             value.setToolTip(tip)
             dot.setForeground(QBrush(QColor(STABILITY_COLOR[vote.stability])))
             dot.setToolTip(vote.stability.value)
+        self._show_position(state)
+
+    def _show_position(self, state: LiveState) -> None:
+        """The last position read from the debug text, and whether F9 would take it now."""
+        seen = "\n".join(f"{score:.2f}  {text}" for text, score in state.position_lines)
+        self._position.setToolTip(f"Last read (match score, line):\n{seen}" if seen else "")
+        position = state.position
+        if position is None:
+            self._set_position_title("Ship position: not read", MUTED)
+            self._position.setText(
+                "Turn on the game's debug info (r_DisplayInfo) and each scan also records "
+                "where the ship was."
+            )
+            return
+        age = max(0.0, state.t - state.position_t)
+        if age <= POSITION_FRESH_S:
+            title = f"Ship position · read {age:.1f} s ago · match {position.confidence:.0%}"
+            self._set_position_title(title, OK)
+        else:
+            title = f"Ship position · last read {age:.0f} s ago: a scan staged now gets none"
+            self._set_position_title(title, WARN)
+        self._position.setText(position_text(position))
+
+    def _set_position_title(self, text: str, color: str) -> None:
+        self._position_title.setText(text)
+        self._position_title.setStyleSheet(f"font-weight: 600; color: {color}")
+
+    def position_title(self) -> str:
+        return self._position_title.text()
+
+    def position_body(self) -> str:
+        return self._position.text()

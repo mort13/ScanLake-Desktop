@@ -77,3 +77,35 @@ def test_store_agrees(tmp_path: Path, fmt: ParquetFormat, profiles: dict[str, Hu
         if not path.name.startswith(("int64", "missing", "extra")):
             assert ours == [], f"{path.name} would be rejected: {ours}"
     assert store[tmp_path / "int64_mass.parquet"] == ['column "mass" is INT64, expected INT32']
+
+
+FORMAT_V3 = HERE.parent / "fixtures" / "format" / "format_v3.json"
+
+
+def _store_knows_positions() -> bool:
+    source = STORE_REPO / "src" / "services" / "format.ts"
+    return source.exists() and "'positions'" in source.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not _store_knows_positions(), reason="the Store checkout predates positions")
+def test_store_accepts_format_v3_with_positions(
+    tmp_path: Path, fmt_v3: ParquetFormat, profiles: dict[str, HudProfile]
+) -> None:
+    from dataclasses import replace
+
+    from tests.test_debug_text import POSITION
+
+    cov = coverage(fmt_v3, slot_layout(profiles["mole"]))
+    capture = replace(_capture(), position=POSITION)
+    files: dict[Path, str] = {}
+    for f in build_batch(fmt_v3, cov, [capture], IDENTITY, ROW_COLUMNS, session_id="s",
+                         batch_number=1):  # fmt: skip
+        path = tmp_path / f.filename
+        path.write_bytes(f.data)
+        files[path] = f.kind
+    assert sorted(files.values()) == ["compositions", "confidences", "positions", "scans"]
+
+    args = [str(HERE / "store_check.mjs"), str(STORE_REPO), str(FORMAT_V3)]
+    args += [f"{kind}={path}" for path, kind in files.items()]
+    out = subprocess.run(["node", *args], capture_output=True, text=True, check=True, timeout=60)
+    assert all(v == [] for v in json.loads(out.stdout).values()), out.stdout

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from scanlake_core.domain.capture import FieldValue, Row
+from scanlake_core.domain.position import Position
 from scanlake_core.domain.tables import tables
 from scanlake_core.domain.validation import Issue
 from scanlake_core.fields import field_spec
@@ -59,12 +60,17 @@ class ReviewForm(QWidget):
         self._issues = QLabel()
         self._issues.setProperty("role", "issues")
         self._issues.setWordWrap(True)
+        self._position = QLabel()  # where the ship was (the game's debug text), read-only
+        self._position.setProperty("role", "hint")
+        self._position.setWordWrap(True)
+        self._position.hide()
 
         box = QVBoxLayout(self)
         box.addWidget(self._title)
         box.addLayout(self._scan_grid)
         box.addSpacing(8)
         box.addLayout(self._rows_grid)
+        box.addWidget(self._position)
         box.addWidget(self._issues)
         box.addStretch(1)
 
@@ -147,6 +153,21 @@ class ReviewForm(QWidget):
         keep = keep or {}
         scan = {c: FieldValue(text=keep[c], source="manual") for c in keep}
         self.load(scan, [], "Nothing staged")
+        self.set_position(None)
+
+    def set_position(self, position: Position | None, missing: str = "") -> None:
+        """Shows the ship position of what is staged; `missing` is shown when there is none
+        (empty = hide the line, for players who never turn the debug text on)."""
+        if position is not None:
+            self._position.setText(f"Position: {position.summary()}")
+            self._position.setToolTip(position.details())
+        else:
+            self._position.setText(missing)
+            self._position.setToolTip("")
+        self._position.setVisible(position is not None or bool(missing))
+
+    def position_text(self) -> str:
+        return self._position.text() if self._position.isVisibleTo(self) else ""
 
     def values(self) -> tuple[dict[str, FieldValue], list[Row]]:
         scan = {c: self._value(-1, c, w) for c, w in self._scan_widgets.items()}

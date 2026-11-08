@@ -19,7 +19,10 @@ import pyarrow.parquet as pq
 
 from scanlake_core.domain.capture import Capture, Identity
 from scanlake_core.domain.rows import build_rows, write_type
-from scanlake_core.format import Coverage, FileSpec, ParquetFormat, validate_columns
+from scanlake_core.format import POSITIONS, Coverage, FileSpec, ParquetFormat, validate_columns
+
+# Kinds left out of a batch that has no rows for them (the Store treats them as optional)
+SKIP_WHEN_EMPTY: frozenset[str] = frozenset({POSITIONS})
 
 _ARROW_TYPES: dict[str, pa.DataType] = {
     "STRING": pa.string(),
@@ -135,11 +138,16 @@ def build_batch(
     session_id: str,
     batch_number: int,
 ) -> list[BatchFile]:
-    """One Parquet file per format file kind, named like the web app names them."""
+    """One Parquet file per format file kind, named like the web app names them.
+
+    A kind in `SKIP_WHEN_EMPTY` without rows (no capture has a position) gets no file.
+    """
     files: list[BatchFile] = []
     for kind, spec in fmt.files.items():
         columns = cov.written_columns(kind)
         rows = build_rows(spec, columns, captures, identity, row_columns)
+        if not rows and kind in SKIP_WHEN_EMPTY:
+            continue
         data = to_parquet_bytes(table_for(spec, columns, rows))
         check(kind, data, spec)
         filename = f"{identity.user_id}_{kind}_{session_id}_batch{batch_number}.parquet"

@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from scanlake_core.domain.capture import Capture, FieldValue, Row, utc_timestamp
+from scanlake_core.domain.position import Position
 from scanlake_core.domain.validation import Issue, is_duplicate, validate
 from scanlake_core.format import Coverage, Source
 from scanlake_core.schema_map import SCANS, SlotLayout
@@ -130,13 +131,16 @@ class SessionService:
         ship: str,
         models: str = "",
         editing: Capture | None = None,
+        position: Position | None = None,
     ) -> SaveResult:
+        """Saves a new capture, or `editing` with new values (its position is kept)."""
         if self.session is None:
             return SaveResult(False, [Issue("Start a session first")])
         issues = self.check(scan, rows, layout, cov, editing)
         if issues:
             return SaveResult(False, issues)
         capture = self._draft(scan, rows, editing, ship)
+        capture.position = editing.position if editing is not None else position
         if editing is None and is_duplicate(capture, self.captures(), layout.row_columns):
             return SaveResult(False, duplicate=True)
         self.db.save_capture(capture, models)

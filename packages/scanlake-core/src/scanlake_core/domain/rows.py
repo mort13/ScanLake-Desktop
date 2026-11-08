@@ -11,8 +11,9 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from scanlake_core.domain.capture import Capture, Identity, Row
+from scanlake_core.domain.position import ZonePosition
 from scanlake_core.fields import FLOAT_TYPES, INTEGER_TYPES
-from scanlake_core.format.bindings import CONF_SUFFIX, CONFIDENCES
+from scanlake_core.format.bindings import CONF_SUFFIX, CONFIDENCES, POSITIONS
 from scanlake_core.format.format import ColumnSpec, FileSpec
 from scanlake_core.schema_map import COMPOSITIONS, SCANS
 
@@ -80,6 +81,37 @@ def _material_volume(capture: Capture, row: Row) -> float | None:
     return round(float(volume) * float(amount.text) / 100, 5)
 
 
+CamDir = tuple[float, float, float] | None
+
+_POSITION_VALUES: dict[str, Callable[[ZonePosition, CamDir], Value]] = {
+    "zone_index": lambda z, cam: z.index,
+    "zone": lambda z, cam: z.zone,
+    "pos_x": lambda z, cam: z.x,
+    "pos_y": lambda z, cam: z.y,
+    "pos_z": lambda z, cam: z.z,
+    "cam_dir_x": lambda z, cam: cam[0] if cam else None,
+    "cam_dir_y": lambda z, cam: cam[1] if cam else None,
+    "cam_dir_z": lambda z, cam: cam[2] if cam else None,
+    "confidence": lambda z, cam: z.confidence,
+}
+
+
+def _position_rows(columns: Sequence[str], capture: Capture) -> list[dict[str, Value]]:
+    """One row per Zone line of the capture's position; none without a position."""
+    position = capture.position
+    if position is None:
+        return []
+    cam = position.cam_dir
+    return [
+        {
+            n: capture.capture_id if n == "capture_id"
+            else (_POSITION_VALUES[n](zone, cam) if n in _POSITION_VALUES else None)
+            for n in columns
+        }
+        for zone in position.zones
+    ]  # fmt: skip
+
+
 def _min_confidence(row: Row) -> float:
     confidences = [v.saved_confidence for v in row.values() if not v.empty]
     return min(confidences, default=1.0)
@@ -103,6 +135,8 @@ def build_rows(
         if spec.kind == COMPOSITIONS:
             for index, row in enumerate(capture.complete_rows(row_columns)):
                 out.append({n: _composition(n, specs[n], capture, row, index) for n in columns})
+        elif spec.kind == POSITIONS:
+            out.extend(_position_rows(columns, capture))
         else:
             out.append(
                 {n: _per_capture(spec.kind, n, specs[n], capture, identity) for n in columns}

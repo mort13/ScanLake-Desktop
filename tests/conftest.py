@@ -60,6 +60,13 @@ def fmt(format_json: dict[str, object]) -> ParquetFormat:
 
 
 @pytest.fixture(scope="session")
+def fmt_v3() -> ParquetFormat:
+    """Format v3 (ScanLake-Format branch `positions`): adds the optional `positions` file."""
+    data = json.loads((FIXTURES / "format" / "format_v3.json").read_text(encoding="utf-8"))
+    return parse_format(data)
+
+
+@pytest.fixture(scope="session")
 def profiles() -> dict[str, HudProfile]:
     _require_assets()
     manifest = load_manifest(ASSETS / "profiles" / "manifest.json")

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
+from scanlake_core.domain.position import parse_position
 from scanlake_core.profile.model import HudProfile
 from scanlake_core.vision.anchors import load_templates
 from tests.conftest import ASSETS
@@ -90,6 +92,8 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
 
         app.stage()
         assert app.staged
+        assert app.staged_position is None  # the replay has no debug text ...
+        assert app.window.form.position_text() == ""  # ... and none was ever seen: no line
         scan, rows = app.window.form.values()
         state = app.last_state
         assert scan["mass"].text == state.votes["mass"].text
@@ -103,11 +107,22 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         assert app.overlay.staged is not None
         assert {v[1] for v in app.overlay.staged.values.values()} >= {"error"}
 
-        # Pressing stage again takes the current values instead of unstaging
+        # Pressing stage again takes the current values instead of unstaging, and the position
+        # the worker read from the debug text with them (only while it is fresh)
         form = app.window.form
         form._scan_widgets["mass"].setText("1")  # type: ignore[union-attr]
+        position = parse_position(["Zone: ab_mine_1 Pos: -18.8743km -3354.15m 12.6396km",
+                                   "Zone: Root Pos: 1km 2km 3km"])  # fmt: skip
+        live = app.last_state
+        app.on_live(replace(live, position=position, position_t=live.t - 10))
+        app.stage()
+        assert app.staged_position is None
+        assert "not readable" in form.position_text()  # seen once: a missing one is news
+        app.on_live(replace(live, position=position, position_t=live.t - 0.5))
         app.stage()
         assert app.staged and form._title.text().startswith("Restaged scan")
+        assert app.staged_position == position
+        assert form.position_text() == "Position: ab_mine_1: -18.87 / -3.35 / 12.64 km"
         assert form.values()[0]["mass"].text == app.last_state.votes["mass"].text
 
         # Fix the materials by hand and save
@@ -142,8 +157,10 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         assert capture.rows[0]["type"].source == "manual"
         assert capture.rows[0]["type"].saved_confidence == 1.0
         assert capture.context["ship"] == "mole" and capture.context["system"] == "Stanton"
+        assert capture.position == position
         assert app.window.scans.rowCount() == 1
         assert not app.staged and app.overlay.staged is None
+        assert app.staged_position is None and form.position_text() == ""
     finally:
         app.stop()
     assert os.listdir(app_env / "data")
