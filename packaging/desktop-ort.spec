@@ -25,6 +25,7 @@ hiddenimports = [
     "pynput.mouse._win32",
     "keyring.backends.Windows",
     "scanlake_inference.ort_backend",
+    "websockets.sync.client",  # shared sessions (scanlake_io.crew_client)
 ]
 
 excludes = [

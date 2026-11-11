@@ -37,10 +37,25 @@ class SessionService:
 
     # -- sessions ----------------------------------------------------------
 
-    def start(self, system: str, gravity_well: str, region: str, ship: str) -> SessionRow:
+    def start(
+        self,
+        system: str,
+        gravity_well: str,
+        region: str,
+        ship: str,
+        session_id: str | None = None,
+    ) -> SessionRow:
+        """Starts a session. With `session_id` (joining a shared session), one that already
+        exists here is reopened instead."""
         if self.session is not None:
             self.close()
-        self._enter(self.db.create_session(system, gravity_well, region, ship))
+        existing = self.db.reopen_session(session_id, ship) if session_id else None
+        if existing is not None:
+            self.db.update_session_location(session_id or "", system, gravity_well, region)
+            existing = self.db.session(existing.session_id)
+        self._enter(
+            existing or self.db.create_session(system, gravity_well, region, ship, session_id)
+        )
         assert self.session is not None
         return self.session
 

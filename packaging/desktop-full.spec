@@ -25,6 +25,7 @@ hiddenimports = [
     "pynput.mouse._win32",
     "keyring.backends.Windows",
     "scanlake_inference.ort_backend",
+    "websockets.sync.client",  # shared sessions (scanlake_io.crew_client)
     "scanlake_inference.torch_backend",
     "scanlake_training.cli",
     "scanlake_training.evaluate",

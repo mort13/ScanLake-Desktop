@@ -103,6 +103,13 @@ def snapshots_dir() -> Path:
     return path
 
 
+def nav_calibration_dir() -> Path:
+    """Raw samples of every compass calibration flight (CSV), kept to analyse a failed fit."""
+    path = data_dir() / "nav-calibration"
+    path.mkdir(exist_ok=True)
+    return path
+
+
 @cache
 def bundled_assets() -> Path:
     """Profiles, anchors, models and the format shipped with this build.

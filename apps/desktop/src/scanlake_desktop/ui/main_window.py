@@ -1,4 +1,6 @@
-"""The main window: session bar, live readings, review form, saved scans, status bar."""
+"""The main window: session bar; a Capture tab (live readings, review form, saved scans) and an
+Overview tab (the session's clusters and navigation), a Crew tab (the shared session's
+members); status bar."""
 
 from __future__ import annotations
 
@@ -11,11 +13,14 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from scanlake_desktop.ui.crew_panel import CrewPanel
 from scanlake_desktop.ui.live_panel import LivePanel
+from scanlake_desktop.ui.overview_panel import OverviewPanel
 from scanlake_desktop.ui.review_form import ReviewForm
 from scanlake_desktop.ui.scans_table import ScansTable
 from scanlake_desktop.ui.session_bar import SessionBar
@@ -68,11 +73,18 @@ class MainWindow(QMainWindow):
         body.setStretchFactor(0, 3)
         body.setStretchFactor(1, 2)
 
+        self.overview = OverviewPanel()
+        self.tabs = QTabWidget()
+        self.tabs.addTab(body, "Capture")
+        self.tabs.addTab(self.overview, "Overview")
+        self.crew = CrewPanel([label for _, label in ships])
+        self.tabs.addTab(self.crew, "Crew")
+
         central = QWidget()
         box = QVBoxLayout(central)
         box.setContentsMargins(4, 0, 4, 0)
         box.addWidget(self.session_bar)
-        box.addWidget(body, 1)
+        box.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
 
         self.upload_status = QLabel()

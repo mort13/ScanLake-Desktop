@@ -101,6 +101,24 @@ CREATE TABLE IF NOT EXISTS batch_items (
     revision   INTEGER NOT NULL,
     PRIMARY KEY (batch_id, capture_id)
 );
+-- Done / need help per cluster. `dirty`: set here and not yet sent to the shared session.
+CREATE TABLE IF NOT EXISTS cluster_status (
+    cluster_id TEXT PRIMARY KEY,
+    status     TEXT NOT NULL CHECK (status IN ('open', 'done', 'need_help')),
+    dirty      INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+-- Sessions shared with other players (ScanLake Crew). `code` is the invite code, `client_id`
+-- this install's private key for its clusters there. A joiner numbers its upload batches from
+-- `batch_base`, so the same user id joining from two PCs never writes the same file.
+CREATE TABLE IF NOT EXISTS shared_sessions (
+    session_id TEXT PRIMARY KEY,
+    code       TEXT NOT NULL,
+    client_id  TEXT NOT NULL,
+    batch_base INTEGER NOT NULL DEFAULT 0,
+    active     INTEGER NOT NULL DEFAULT 1,
+    joined_at  TEXT NOT NULL
+);
 """
 
 
@@ -116,6 +134,15 @@ class SessionRow:
     closed_at: str | None = None
     scans: int = 0
     pending: int = 0  # captures not uploaded in their latest revision
+
+
+@dataclass(frozen=True)
+class ShareRow:
+    session_id: str
+    code: str
+    client_id: str
+    batch_base: int
+    active: bool  # False once left: the row stays for `batch_base`
 
 
 @dataclass(frozen=True)
@@ -164,8 +191,11 @@ class Database:
 
     # -- sessions -----------------------------------------------------------
 
-    def create_session(self, system: str, gravity_well: str, region: str, ship: str) -> SessionRow:
-        session_id = str(uuid.uuid4())
+    def create_session(
+        self, system: str, gravity_well: str, region: str, ship: str, session_id: str | None = None
+    ) -> SessionRow:
+        """A new active session; `session_id` is given when joining someone's shared session."""
+        session_id = session_id or str(uuid.uuid4())
         now = utc_timestamp()
         with self._tx() as db:
             db.execute(
@@ -224,6 +254,58 @@ class Database:
         self._db.execute(
             "UPDATE sessions SET status = 'closed', closed_at = ? WHERE session_id = ?",
             (utc_timestamp(), session_id),
+        )
+
+    def reopen_session(self, session_id: str, ship: str) -> SessionRow | None:
+        """Makes a closed session active again (rejoining a shared session); batches go on."""
+        self._db.execute(
+            "UPDATE sessions SET status = 'active', closed_at = NULL, ship = ?"
+            " WHERE session_id = ?",
+            (ship, session_id),
+        )
+        return self.session(session_id)
+
+    # -- shared sessions ----------------------------------------------------
+
+    def share(self, session_id: str) -> ShareRow | None:
+        r = self._db.execute(
+            "SELECT * FROM shared_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        if r is None:
+            return None
+        return ShareRow(
+            r["session_id"], r["code"], r["client_id"], r["batch_base"], bool(r["active"])
+        )
+
+    def set_share(self, session_id: str, code: str, batch_base: int = 0) -> ShareRow:
+        """Marks a session as shared; an earlier share keeps its client id and batch base."""
+        self._db.execute(
+            "INSERT INTO shared_sessions (session_id, code, client_id, batch_base, joined_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (session_id) DO UPDATE SET code = excluded.code, active = 1",
+            (session_id, code, str(uuid.uuid4()), batch_base, utc_timestamp()),
+        )
+        return self.share(session_id)  # type: ignore[return-value]
+
+    def end_share(self, session_id: str) -> None:
+        self._db.execute(
+            "UPDATE shared_sessions SET active = 0 WHERE session_id = ?", (session_id,)
+        )
+
+    # -- cluster status -----------------------------------------------------
+
+    def cluster_statuses(self) -> dict[str, tuple[str, bool]]:
+        """cluster_id -> (status, dirty) of every cluster that was ever marked."""
+        rows = self._db.execute("SELECT cluster_id, status, dirty FROM cluster_status")
+        return {r["cluster_id"]: (r["status"], bool(r["dirty"])) for r in rows}
+
+    def set_cluster_status(self, cluster_id: str, status: str, dirty: bool = False) -> None:
+        self._db.execute(
+            "INSERT INTO cluster_status (cluster_id, status, dirty, updated_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (cluster_id) DO UPDATE SET status = excluded.status,"
+            "   dirty = excluded.dirty, updated_at = excluded.updated_at",
+            (cluster_id, status, int(dirty), utc_timestamp()),
         )
 
     # -- clusters -----------------------------------------------------------
@@ -388,10 +470,12 @@ class Database:
         if not items and not is_final:
             return None
         with self._tx() as db:
+            # A joined shared session starts at its own base (see `shared_sessions`)
             number = db.execute(
-                "SELECT COALESCE(MAX(batch_number), 0) + 1 FROM upload_batches"
-                " WHERE session_id = ?",
-                (session_id,),
+                "SELECT COALESCE("
+                "  (SELECT MAX(batch_number) FROM upload_batches WHERE session_id = ?),"
+                "  (SELECT batch_base FROM shared_sessions WHERE session_id = ?), 0) + 1",
+                (session_id, session_id),
             ).fetchone()[0]
             cur = db.execute(
                 "INSERT INTO upload_batches (session_id, batch_number, is_final, created_at)"

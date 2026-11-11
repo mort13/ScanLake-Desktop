@@ -1,9 +1,18 @@
-"""Top bar: ship, location, session start/close and the rock cluster."""
+"""Top bar: ship, location, session start/close, sharing and the rock cluster."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QToolButton,
+    QWidget,
+)
 
 from scanlake_core.domain.tables import tables
 
@@ -16,6 +25,9 @@ class SessionBar(QWidget):
     cluster_step = Signal(int)
     new_cluster_clicked = Signal()
     account_clicked = Signal()
+    invite_clicked = Signal()
+    join_clicked = Signal()
+    leave_clicked = Signal()
 
     def __init__(self, ships: list[tuple[str, str]]) -> None:
         super().__init__()
@@ -31,6 +43,20 @@ class SessionBar(QWidget):
         self.region.setEditable(True)
         self.region.setMinimumWidth(140)
         self.session_button = QPushButton("Start session")
+        # One button for everything about shared sessions: the bar has no room for three
+        self.share = QToolButton()
+        self.share.setText("Share")
+        self.share.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.share.setStyleSheet("QToolButton { padding: 3px 18px 3px 8px; }")  # room for the arrow
+        self.invite_action = QAction("Invite (copy link)", self)
+        self.join_action = QAction("Join…", self)
+        self.leave_action = QAction("Leave shared session", self)
+        self.invite_action.triggered.connect(self.invite_clicked.emit)
+        self.join_action.triggered.connect(self.join_clicked.emit)
+        self.leave_action.triggered.connect(self.leave_clicked.emit)
+        menu = QMenu(self.share)
+        menu.addActions([self.invite_action, self.join_action, self.leave_action])
+        self.share.setMenu(menu)
         self.prev_cluster = QPushButton("◀")
         self.next_cluster = QPushButton("▶")
         for b in (self.prev_cluster, self.next_cluster):
@@ -47,6 +73,7 @@ class SessionBar(QWidget):
             row.addWidget(widget)
         row.addSpacing(12)
         row.addWidget(self.session_button)
+        row.addWidget(self.share)
         row.addSpacing(12)
         row.addWidget(QLabel("Cluster"))
         row.addWidget(self.prev_cluster)
@@ -105,6 +132,13 @@ class SessionBar(QWidget):
         self.prev_cluster.setEnabled(active and cluster_number > 1)
         self.next_cluster.setEnabled(active and cluster_number < cluster_count)
         self.cluster.setText(f"#{cluster_number} of {cluster_count}" if active else "—")
+
+    def set_shared(self, shared: bool, enabled: bool = True) -> None:
+        """`enabled` False: shared sessions are turned off (no Crew URL)."""
+        self.share.setEnabled(enabled)
+        self.share.setText("Shared" if shared else "Share")
+        self.invite_action.setText("Copy invite link" if shared else "Invite (copy link)")
+        self.leave_action.setEnabled(shared)
 
     def _session_clicked(self) -> None:
         (self.close_clicked if self._active else self.start_clicked).emit()

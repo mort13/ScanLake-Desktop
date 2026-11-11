@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import logging
+import random
 import sys
+import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
-from scanlake_core.domain.capture import Identity
+from scanlake_core.domain.capture import Capture, Identity
+from scanlake_core.domain.navigation import (
+    CalibrationResult,
+    CameraFrames,
+    ClusterSummary,
+    Convention,
+    NavTracker,
+    summarize_clusters,
+)
 from scanlake_core.domain.position import Position
 from scanlake_core.format import Coverage, ParquetFormat, coverage, parse_format
 from scanlake_core.geometry import Rect
@@ -23,6 +34,7 @@ from scanlake_desktop.auth.client import AuthClient
 from scanlake_desktop.auth.reconcile import LocalProfile
 from scanlake_desktop.auth.token_store import TokenStore
 from scanlake_desktop.capture.source import Monitor, list_monitors
+from scanlake_desktop.crew.controller import CrewController
 from scanlake_desktop.db.database import Database
 from scanlake_desktop.hotkeys import HotkeyService
 from scanlake_desktop.services.session_service import SessionService
@@ -31,18 +43,23 @@ from scanlake_desktop.settings import Endpoints, Settings, save_settings
 from scanlake_desktop.tasks import run_in_background
 from scanlake_desktop.ui.game_overlay import GameOverlay, Staged
 from scanlake_desktop.ui.main_window import MainWindow
+from scanlake_desktop.ui.nav_calibration import CalibrationDialog
+from scanlake_desktop.ui.nav_overlay import NavOverlay
 from scanlake_desktop.ui.settings_dialog import SettingsDialog
 from scanlake_desktop.ui.style import ERROR
 from scanlake_desktop.upload.upload_worker import UploadWorker
 from scanlake_desktop.upload.uploader import FormatHolder
 from scanlake_desktop.worker.pipeline_worker import (
+    POSITION_EVERY_S,
     POSITION_FRESH_S,
+    POSITION_NAV_S,
     LiveState,
     PipelineWorker,
+    PositionRead,
     WorkerConfig,
 )
 from scanlake_inference.registry import available_backends
-from scanlake_io import frontdesk_client
+from scanlake_io import crew_client, frontdesk_client
 from scanlake_io.format_source import load_format
 from scanlake_io.store_client import StoreClient
 
@@ -91,6 +108,7 @@ class DesktopApp(QObject):
         self.db = Database(paths.database_file())
         self.sessions = SessionService(self.db)
         self.last_state: LiveState | None = None
+        self.position_read: PositionRead | None = None  # the newest one sent on its own
         self.staged = False
         self.editing = None
         self.staged_readings: dict[str, RoiReading] = {}  # crops of what was staged
@@ -99,6 +117,13 @@ class DesktopApp(QObject):
         self.positions_seen = False  # the debug text was read at least once this run
         self.debug_window = None
         self.profile_editor = None
+        # The Overview's clusters: the active session's own ones and, in a shared session,
+        # the other members'
+        self.clusters: list[ClusterSummary] = []
+        self.nav: NavTracker | None = None  # the cluster being navigated to
+        self.nav_position_t = 0.0  # the live position the Overview last saw
+        self.camera_frames = CameraFrames()  # which frame CamDir is in, per zone (this run)
+        self.calibration: CalibrationDialog | None = None  # open compass calibration
 
         fmt = self._offline_format()
         self.formats = FormatHolder(self._load_format_live, fmt)
@@ -111,10 +136,18 @@ class DesktopApp(QObject):
         self.overlay = GameOverlay()
         self.overlay.set_monitor(self.monitor)
         self.overlay.set_enabled(settings.game_overlay)
+        self.nav_overlay = NavOverlay()
+        self.nav_overlay.set_monitor(self.monitor)
+        self.nav_overlay.set_anchor(settings.nav_compass_x, settings.nav_compass_y)
+        self.nav_overlay.set_enabled(settings.nav_compass)
+        self.nav_overlay.set_debug(settings.nav_debug)
+        self.window.overview.set_debug(settings.nav_debug)
+        self._show_compass_status()
 
         self.stopped = False
         self.worker = PipelineWorker()
         self.worker.live.connect(self.on_live)
+        self.worker.position.connect(self.on_position)
         self.worker.problem.connect(self._worker_problem)
         self.worker.backend_resolved.connect(self._remember_backend)
         self.worker.start()
@@ -149,6 +182,18 @@ class DesktopApp(QObject):
         self.account.message.connect(lambda text: self.window.flash(text, 10000))
         self.account_dialog = None
 
+        self.crew = CrewController(
+            self.db,
+            self.endpoints.crew,
+            self._crew_identity,
+            self._crew_profile,
+            f"ScanLakeDesktop/{self.version}",
+        )
+        self.crew.changed.connect(self._show_clusters)
+        self.crew.notice.connect(self._crew_notice)
+        self.crew.ended.connect(lambda why: self.window.flash(why, 15000))
+        self.window.crew.set_profile(*self._crew_profile())
+
         self.tray = self._make_tray()
         self._apply_ship()
         self._refresh_session()
@@ -162,6 +207,9 @@ class DesktopApp(QObject):
         self._check_updates()
         if self.sessions.session is not None:  # resumed from the last run
             self._ping_frontdesk(self.sessions.session.session_id, "open")
+            share = self.db.share(self.sessions.session.session_id)
+            if share is not None and share.active and self.crew.enabled:
+                self.crew.open(share)
 
     # -- setup ----------------------------------------------------------------
 
@@ -270,9 +318,21 @@ class DesktopApp(QObject):
         bar.cluster_step.connect(self.step_cluster)
         bar.new_cluster_clicked.connect(self.new_cluster)
         bar.account_clicked.connect(self.open_account)
+        bar.invite_clicked.connect(self.invite_session)
+        bar.join_clicked.connect(self.join_session)
+        bar.leave_clicked.connect(self.leave_shared)
+        w.crew.invite_clicked.connect(self.invite_session)
+        w.crew.join_clicked.connect(self.join_session)
+        w.crew.leave_clicked.connect(self.leave_shared)
+        w.crew.profile_changed.connect(self._crew_profile_changed)
+        w.overview.status_changed.connect(self._set_cluster_status)
         w.form.changed.connect(self._revalidate)
         w.scans.edit_requested.connect(self.edit_capture)
         w.scans.delete_requested.connect(self.delete_capture)
+        w.overview.target_selected.connect(self.navigate_to)
+        w.overview.target_cleared.connect(self.stop_navigation)
+        w.overview.calibrate_clicked.connect(self.open_calibration)
+        w.overview.debug_toggled.connect(self._nav_debug)
         w.session_bar.set_ship(self.settings.ship)
         w.session_bar.set_location(
             self.settings.system, self.settings.gravity_well, self.settings.region
@@ -326,6 +386,7 @@ class DesktopApp(QObject):
             collect_crops=s.dev_mode and s.collect_crops,
             model_stamp=self.assets.model_stamp(),
             replay=self.replay,
+            position_every_s=POSITION_NAV_S if self._fast_positions() else POSITION_EVERY_S,
         )
 
     def _apply_ship(self) -> None:
@@ -355,6 +416,23 @@ class DesktopApp(QObject):
             self.overlay.update_state(state)
         if self.debug_window is not None:
             self.debug_window.update_state(state)
+        self._update_navigation(state.position, state.position_t)
+
+    def on_position(self, read: PositionRead) -> None:
+        """A position the moment the debug text gave it (live capture), between LiveStates."""
+        if self.stopped:
+            return
+        self.positions_seen = True
+        self.position_read = read
+        self._update_navigation(read.position, read.position_t)
+
+    def _latest_position(self) -> tuple[Position | None, float]:
+        """The newest position read, from the last LiveState or sent on its own."""
+        state, read = self.last_state, self.position_read
+        latest = (state.position, state.position_t) if state is not None else (None, 0.0)
+        if read is not None and read.position_t > latest[1]:
+            latest = (read.position, read.position_t)
+        return latest
 
     # -- actions --------------------------------------------------------------
 
@@ -386,8 +464,9 @@ class DesktopApp(QObject):
         self.editing = None
         self.staged_readings = dict(state.readings)
         self.staged_region = state.region
-        fresh = state.position is not None and state.t - state.position_t <= POSITION_FRESH_S
-        self.staged_position = state.position if fresh else None
+        position, position_t = self._latest_position()
+        fresh = position is not None and state.t - position_t <= POSITION_FRESH_S
+        self.staged_position = position if fresh else None
         self.window.form.load(scan, rows, title, attention)
         self.window.form.set_position(
             self.staged_position,
@@ -502,9 +581,14 @@ class DesktopApp(QObject):
 
     def close_session(self) -> None:
         session = self.sessions.session
+        shared = session is not None and self.db.share(session.session_id) is not None
+        self.crew.close()  # closing your session leaves a shared one
+        if session is not None and shared:
+            self.db.end_share(session.session_id)
         number = self.sessions.close()
-        if session is not None and session.scans == 0:
-            # Its final batch is empty and never reaches the Store, which would report the close
+        if session is not None and session.scans == 0 and not shared:
+            # Its final batch is empty and never reaches the Store, which would report the close.
+            # Never for a shared session: the others are still in it.
             self._ping_frontdesk(session.session_id, "discard")
         self.clear()
         self._refresh_session()
@@ -518,6 +602,132 @@ class DesktopApp(QObject):
         run_in_background(
             lambda: frontdesk_client.ping(url, session_id, kind, user_agent=agent), lambda _: None
         )
+
+    # -- shared sessions (Share menu, Crew tab) ---------------------------------
+
+    def _crew_identity(self) -> tuple[str, str]:
+        """Who this player is to the other members: the ScanLake ID and a name."""
+        me = self.account.me if hasattr(self, "account") else None
+        name = self.settings.user_name or (me.display_name if me is not None else "")
+        return self.settings.user_id, name
+
+    def _crew_profile(self) -> tuple[list[str], str, str]:
+        s = self.settings
+        return list(s.crew_roles), s.crew_ship or self.ship.label, s.crew_group
+
+    def _crew_profile_changed(self, roles: list[str], ship: str, group: str) -> None:
+        s = self.settings
+        s.crew_roles, s.crew_ship, s.crew_group = list(roles), ship, group
+        save_settings(s)
+        self.crew.set_profile()
+
+    def _crew_notice(self, text: str, urgent: bool) -> None:
+        self.window.flash(text, 15000 if urgent else 8000)
+        if urgent:
+            self.overlay.flash(text)
+            self._beep("stage")
+
+    def _set_cluster_status(self, cluster_id: str, status: str) -> None:
+        self.crew.set_status(cluster_id, status)
+
+    def invite_link(self) -> str:
+        share = self.crew.share
+        return crew_client.invite_link(self.endpoints.crew, share.code) if share else ""
+
+    def _copy_invite(self) -> None:
+        QGuiApplication.clipboard().setText(self.invite_link())
+        self.window.flash("Invite link copied: the others paste it under Share → Join…", 10000)
+
+    def invite_session(self) -> None:
+        """Shares the active session (starting one if needed) and copies its invite link."""
+        if not self.crew.enabled:
+            return
+        if self.crew.shared:
+            self._copy_invite()
+            return
+        if self.sessions.session is None:
+            self.start_session()
+        session = self.sessions.session
+        assert session is not None
+        user_id, name = self._crew_identity()
+        url, agent = self.endpoints.crew, f"ScanLakeDesktop/{self.version}"
+        location = (session.system, session.gravity_well, session.region)
+        session_id = session.session_id
+
+        def created(result: object) -> None:
+            if self.stopped:
+                return
+            if not isinstance(result, str):
+                self.window.flash(f"Sharing failed: {result}", 10000)
+                return
+            self.share_session(session_id, result)
+            if self.crew.shared:
+                self._copy_invite()
+
+        self.window.flash("Sharing the session…")
+        run_in_background(
+            lambda: crew_client.create_room(
+                url, session_id, user_id, name, location, user_agent=agent
+            ),
+            created,
+        )
+
+    def share_session(self, session_id: str, code: str) -> None:
+        """The active session now has a room: remember it and connect."""
+        session = self.sessions.session
+        if session is None or session.session_id != session_id:
+            return  # closed meanwhile
+        self.crew.open(self.db.set_share(session_id, code))
+        self._refresh_session()
+
+    def join_session(self) -> None:
+        """Asks for an invite link and joins that shared session."""
+        if not self.crew.enabled:
+            return
+        from scanlake_desktop.ui.join_dialog import JoinDialog
+
+        url, agent = self.endpoints.crew, f"ScanLakeDesktop/{self.version}"
+        session = self.sessions.session
+        note = ""
+        if session is not None:
+            scans = "1 scan uploads" if session.scans == 1 else f"{session.scans} scans upload"
+            note = f"Joining closes your current session ({scans} now), unless it is this one."
+        dialog = JoinDialog(
+            lambda code: crew_client.room_info(url, code, user_agent=agent), note, self.window
+        )
+        if dialog.exec() and dialog.code and dialog.info:
+            self.join_room(dialog.code, dialog.info)
+
+    def join_room(self, code: str, info: crew_client.RoomInfo) -> None:
+        """Joins a shared session: the local session takes the room's session id (one that
+        exists here is reopened), so every member's scans upload under the same session."""
+        session = self.sessions.session
+        if session is None or session.session_id != info.session_id:
+            if session is not None:
+                self.close_session()
+            location = (info.system, info.gravity_well, info.region)
+            if info.system:
+                self.window.session_bar.set_location(*location)
+                self.change_location(*location)
+            else:
+                location = self.window.session_bar.location()
+            started = self.sessions.start(*location, self.ship.key, session_id=info.session_id)
+            self._ping_frontdesk(started.session_id, "open")
+        # A joiner's batches get their own numbers: the same user id joining from another PC
+        # would otherwise write the same file names in the Store
+        base = random.randrange(1, 2_000_000) * 1000
+        self.crew.open(self.db.set_share(info.session_id, code, base))
+        self._refresh_session()
+        self.window.flash(f"Joined {info.host_name or 'the'} shared session".replace("  ", " "))
+
+    def leave_shared(self) -> None:
+        """Stops sharing; the session itself goes on alone."""
+        share = self.crew.share
+        if share is None:
+            return
+        self.crew.close()
+        self.db.end_share(share.session_id)
+        self.window.flash("Left the shared session; your session goes on alone")
 
     def change_ship(self, key: str) -> None:
         if key in self.ships and key != self.settings.ship:
@@ -578,7 +788,11 @@ class DesktopApp(QObject):
         self._bind_hotkeys()
         self.overlay.set_monitor(self.monitor)
         self.overlay.set_enabled(new.game_overlay)
+        self.nav_overlay.set_monitor(self.monitor)
+        self.nav_overlay.set_anchor(new.nav_compass_x, new.nav_compass_y)
+        self.nav_overlay.set_enabled(new.nav_compass)
         self.worker.configure(self._worker_config())
+        self.crew.set_profile()  # the name the others see may have changed
         if torch_switch:
             QMessageBox.information(
                 self.window, "Restart needed", "Restart ScanLake Desktop to switch to PyTorch."
@@ -603,6 +817,8 @@ class DesktopApp(QObject):
         else:
             text = "Log in with Discord"
         self.window.session_bar.account.setText(text)
+        if not self.settings.user_name:
+            self.crew.set_profile()  # the others see the Discord name then
 
     def _apply_account_profile(self, before: LocalProfile, after: LocalProfile) -> None:
         """The Discord account supplied a different ScanLake ID, name or org: use them here."""
@@ -612,6 +828,7 @@ class DesktopApp(QObject):
         if after.user_id != before.user_id:
             self.store.forget_tokens()  # upload tokens belong to the previous ID
             self.window.flash("Using the ScanLake ID of your Discord account", 10000)
+            self.crew.rejoin()  # under the new ID; this install's clusters follow it
         if self.account_dialog is not None:
             self.account_dialog.user_id = after.user_id
         self._refresh_session()
@@ -704,6 +921,146 @@ class DesktopApp(QObject):
         self.debug_window = None
         self.worker.configure(self._worker_config())
 
+    # -- navigation (Overview tab) --------------------------------------------
+
+    @property
+    def convention(self) -> Convention | None:
+        return Convention.parse(self.settings.nav_camdir_convention)
+
+    def _fast_positions(self) -> bool:
+        """Read the debug text often: a cluster is the target, or a calibration records."""
+        recording = self.calibration is not None and self.calibration.fit_result is None
+        return self.nav is not None or recording
+
+    def _refresh_clusters(self, captures: list[Capture]) -> None:
+        """The own clusters changed: the shared session hears of it, the Overview shows them."""
+        self.crew.publish(summarize_clusters(captures, self.sessions.clusters))
+        self._show_clusters()
+
+    def _show_clusters(self) -> None:
+        """Shows the Overview's cards (own clusters and other members') and the Crew tab;
+        also runs whenever the shared session reports a change."""
+        if self.stopped:
+            return
+        overview = self.window.overview
+        cards = self.crew.cards()
+        by_id = {card.cluster_id: card.summary for card in cards}
+        if self.nav is not None:
+            summary = by_id.get(self.nav.target.cluster_id)
+            if summary is None or not summary.has_position:
+                self.stop_navigation()
+                cards = self.crew.cards()
+            else:
+                self.nav.target = summary  # new scans move its centre
+        self.clusters = [card.summary for card in cards]
+        overview.show_clusters(cards)  # clears a target that is gone (-> stop)
+        if self.nav is not None:
+            overview.set_target(self.nav.target.cluster_id)
+        state = self.last_state
+        overview.update_position(state.position if state else None)
+        self._show_crew()
+
+    def _show_crew(self) -> None:
+        crew, room = self.crew, self.crew.room
+        members = crew.members()
+        online = sum(1 for m in members if m.online)
+        if not crew.enabled:
+            state, note = "Shared sessions are turned off (SCANLAKE_CREW_URL is empty).", ""
+        elif room is None:
+            state = "Not shared. Invite copies a link for the others; Join… takes a link you got."
+            note = ""
+        elif crew.online:
+            people = "1 member" if online == 1 else f"{online} members"
+            state = f"Shared: {people} online. Everyone here sees each other's clusters."
+            note = f"shared with {online - 1}" if online > 1 else "shared"
+        else:
+            state = "Reconnecting to the shared session…"
+            note = "shared · reconnecting…"
+        self.window.overview.set_shared(note, offline=room is not None and not crew.online)
+        self.window.session_bar.set_shared(room is not None, crew.enabled)
+        self.window.crew.show_room(
+            members,
+            room.you if room else "",
+            self.invite_link(),
+            state,
+            {m.user_id: crew.target_of(m.user_id) for m in members},
+            shared=room is not None,
+            can_invite=True,
+            enabled=crew.enabled,
+        )
+
+    def navigate_to(self, cluster_id: str) -> None:
+        summary = next((s for s in self.clusters if s.cluster_id == cluster_id), None)
+        if summary is None or not summary.has_position:
+            return
+        self.nav = NavTracker(summary, self.convention, self.camera_frames)
+        self.window.overview.set_target(cluster_id)
+        self.crew.set_target(cluster_id)  # the others see who is on the way
+        self._update_navigation(*self._latest_position())
+        self.worker.configure(self._worker_config())
+
+    def stop_navigation(self) -> None:
+        if self.nav is None:
+            return
+        self.nav = None
+        self.window.overview.set_target(None)
+        self.crew.set_target(None)
+        self.nav_overlay.show_fix(None)
+        self.worker.configure(self._worker_config())
+
+    def _update_navigation(self, position: Position | None, position_t: float) -> None:
+        """Feeds a position to the Overview, calibration and compass; one the position thread
+        sent already is not used again (a LiveState may carry it, or an older one, later)."""
+        if position_t > self.nav_position_t:
+            self.nav_position_t = position_t
+            self.window.overview.update_position(position)
+            if self.calibration is not None:
+                self.calibration.add(position, position_t)
+            convention = self.convention
+            if position is not None and convention is not None:
+                self.camera_frames.add(position, position_t, convention)
+        if self.nav is not None:
+            if position_t < self.nav_position_t:  # older than one used: only age the fix
+                position, position_t = None, 0.0
+            fix = self.nav.update(position, position_t, time.time())
+            self.window.overview.show_fix(fix)
+            self.nav_overlay.show_fix(fix)
+
+    def _nav_debug(self, on: bool) -> None:
+        self.settings.nav_debug = on
+        save_settings(self.settings)
+        self.nav_overlay.set_debug(on)
+
+    def _show_compass_status(self) -> None:
+        conv = self.convention
+        self.window.overview.set_compass_status(conv is not None, str(conv) if conv else "")
+
+    def open_calibration(self) -> None:
+        if self.calibration is None:
+            dialog = CalibrationDialog(paths.nav_calibration_dir, self.window)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            dialog.calibrated.connect(self._calibrated)
+            dialog.finished.connect(self._calibration_closed)
+            self.calibration = dialog
+        self.calibration.show()
+        self.calibration.raise_()
+        self.worker.configure(self._worker_config())
+
+    def _calibrated(self, result: CalibrationResult) -> None:
+        if result.convention is None:
+            return
+        self.settings.nav_camdir_convention = str(result.convention)
+        save_settings(self.settings)
+        if self.nav is not None:
+            self.nav.convention = result.convention
+        self._show_compass_status()
+        self.worker.configure(self._worker_config())
+
+    def _calibration_closed(self, _code: int) -> None:
+        self.calibration = None
+        if not self.stopped:
+            self.worker.configure(self._worker_config())
+
     # -- display --------------------------------------------------------------
 
     def _refresh_session(self) -> None:
@@ -717,6 +1074,7 @@ class DesktopApp(QObject):
         self.window.scans.show_captures(
             captures, self.layout.scan_columns, self.layout.row_columns, state, numbers
         )
+        self._refresh_clusters(captures if active else [])
         s = self.settings
         who = s.user_name or "anonymous"
         self.window.user_status.setText(f"  {who} · {len(captures)} scans this session")
@@ -757,9 +1115,13 @@ class DesktopApp(QObject):
         # Updates the threads queued before they stopped must not reach a closed window or DB
         self.stopped = True
         self.hotkeys.stop()
+        self.crew.close()
         self.worker.stop()
         self.uploader.stop()
         self.overlay.close()
+        self.nav_overlay.close()
+        if self.calibration is not None:
+            self.calibration.close()
         save_settings(self.settings)
         self.db.close()
 

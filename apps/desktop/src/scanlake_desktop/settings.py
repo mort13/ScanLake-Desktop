@@ -2,7 +2,8 @@
 
 Endpoints are not stored: they default to production and can be overridden per run with
 SCANLAKE_STORE_URL / SCANLAKE_GATEWAY_URL / SCANLAKE_AUTH_URL / SCANLAKE_FORMAT_URL /
-SCANLAKE_FRONTDESK_URL (empty: no session pings to the landing page).
+SCANLAKE_FRONTDESK_URL (empty: no session pings to the landing page) / SCANLAKE_CREW_URL
+(empty: no shared sessions).
 """
 
 from __future__ import annotations
@@ -53,6 +54,13 @@ class Settings(BaseModel):
     manual_region: Region | None = None
     fps: int = Field(default=10, ge=1, le=30)
     game_overlay: bool = True  # the readings drawn over the game, next to each ROI
+    # Navigation compass over the game while a cluster is the target (Overview tab); its
+    # centre as fractions of the game monitor, and the learnt CamDir convention ("" = none yet)
+    nav_compass: bool = True
+    nav_compass_x: float = Field(default=0.5, ge=0, le=1)
+    nav_compass_y: float = Field(default=0.62, ge=0, le=1)
+    nav_camdir_convention: str = ""
+    nav_debug: bool = False  # the debug readout (Overview tab, and under the compass in game)
     # Recognition
     backend: str = "auto"  # auto | ort-cpu | ort-dml | torch-cpu | torch-cuda
     auto_backend: str | None = None  # what `auto` resolved to (benchmarked once)
@@ -69,6 +77,10 @@ class Settings(BaseModel):
     # Ship positions read from the game's debug text are always kept locally (and in exported
     # batches); they go to the Store only when the player opts in.
     upload_positions: bool = False
+    # What the other members of a shared session see about you (Crew tab)
+    crew_roles: list[str] = Field(default_factory=list)  # scout | laser | pilot | hauler
+    crew_ship: str = ""
+    crew_group: str = ""  # your crew, e.g. "Mole crew"
     # Modes
     dev_mode: bool = False
     collect_crops: bool = False  # dev: save ROI crops of saved scans for training
@@ -116,6 +128,7 @@ class Endpoints:
     auth: str
     format: str
     frontdesk: str
+    crew: str = ""
 
     @classmethod
     def from_env(cls) -> Endpoints:
@@ -127,4 +140,5 @@ class Endpoints:
             auth=os.environ.get("SCANLAKE_AUTH_URL", "https://auth.scanlake.rocks").rstrip("/"),
             format=os.environ.get("SCANLAKE_FORMAT_URL", gateway.rstrip("/") + "/api/format"),
             frontdesk=frontdesk.rstrip("/"),
+            crew=os.environ.get("SCANLAKE_CREW_URL", "https://crew.scanlake.rocks").rstrip("/"),
         )

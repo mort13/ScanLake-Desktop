@@ -39,6 +39,11 @@ _METRES = {"m": 1.0, "km": 1000.0}
 _SYSTEM_ZONES = ("SolarSystem", "Root")
 
 
+def is_system_zone(zone: str) -> bool:
+    """A zone spanning the whole system (`SolarSystem_…`, `Root`)."""
+    return zone.startswith(_SYSTEM_ZONES)
+
+
 @dataclass(frozen=True)
 class ZonePosition:
     index: int  # 0-based position of the Zone line in the debug text, top first
@@ -71,7 +76,7 @@ class Position:
         the innermost zone when there is none."""
         local = self.zones[0]
         for zone in self.zones:
-            if zone.zone.startswith(_SYSTEM_ZONES):
+            if is_system_zone(zone.zone):
                 break
             local = zone
         return local

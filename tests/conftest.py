@@ -26,6 +26,7 @@ def offline_services(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyP
         return
     for name in ("STORE", "AUTH", "GATEWAY"):
         monkeypatch.setenv(f"SCANLAKE_{name}_URL", f"https://{name.lower()}.invalid")
+    monkeypatch.setenv("SCANLAKE_CREW_URL", "")  # no shared sessions
 
 
 @pytest.fixture(autouse=True)

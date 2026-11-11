@@ -88,6 +88,10 @@ def self_test(report_path: Path) -> int:
         from PySide6 import __version__ as pyside_version
 
         report["pyside6"] = pyside_version
+        import websockets.sync.client  # noqa: F401  (shared sessions)
+        from websockets.version import version as websockets_version
+
+        report["websockets"] = websockets_version
     except Exception:
         ok = False
         report["error"] = traceback.format_exc()
@@ -135,16 +139,18 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("ScanLake Desktop")
     app.setOrganizationName("ScanLake")
 
-    # One instance only: a second start just brings the first one to the front
+    # One instance only: a second start just brings the first one to the front.
+    # SCANLAKE_INSTANCE names a separate instance (two side by side, to test shared sessions).
+    instance = "ScanLakeDesktop" + os.environ.get("SCANLAKE_INSTANCE", "")
     socket = QLocalSocket()
-    socket.connectToServer("ScanLakeDesktop")
+    socket.connectToServer(instance)
     if socket.waitForConnected(300):
         socket.write(b"show")
         socket.waitForBytesWritten(300)
         return 0
-    QLocalServer.removeServer("ScanLakeDesktop")
+    QLocalServer.removeServer(instance)
     server = QLocalServer()
-    server.listen("ScanLakeDesktop")
+    server.listen(instance)
 
     from scanlake_desktop import paths
     from scanlake_desktop.app import DesktopApp

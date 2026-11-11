@@ -139,8 +139,28 @@ class SettingsDialog(QDialog):
         form.addRow("Capture region", self.region_mode)
         form.addRow("", pick)
         form.addRow("", self.region_label)
+        self.nav_compass = QCheckBox("Show the navigation compass over the game")
+        self.nav_compass.setChecked(s.nav_compass)
+        self.nav_compass.setToolTip(
+            "While a cluster on the Overview tab is the target: a ring whose dot points at it."
+        )
+        self.nav_compass_x = QSpinBox()
+        self.nav_compass_y = QSpinBox()
+        for spin, value in ((self.nav_compass_x, s.nav_compass_x),
+                            (self.nav_compass_y, s.nav_compass_y)):  # fmt: skip
+            spin.setRange(0, 100)
+            spin.setSuffix(" %")
+            spin.setValue(round(value * 100))
+        compass_at = QHBoxLayout()
+        compass_at.addWidget(QLabel("across"))
+        compass_at.addWidget(self.nav_compass_x)
+        compass_at.addWidget(QLabel("down"))
+        compass_at.addWidget(self.nav_compass_y)
+        compass_at.addStretch(1)
         form.addRow("Frames per second", self.fps)
         form.addRow(self.game_overlay)
+        form.addRow(self.nav_compass)
+        form.addRow("Compass position", compass_at)
         return _page(form)
 
     def _recognition_tab(self, backends: list[BackendInfo], active: str) -> QWidget:
@@ -206,7 +226,8 @@ class SettingsDialog(QDialog):
         positions_hint = QLabel(
             "With the game's debug info on (r_DisplayInfo), each scan also records where the"
             " ship was: its CamDir and Zone lines. They are always kept on this computer and in"
-            " saved batches; tick this to also upload them."
+            " saved batches; tick this to also upload them. In a shared session the other"
+            " members see where your clusters are either way."
         )
         positions_hint.setProperty("role", "hint")
         positions_hint.setWordWrap(True)
@@ -285,6 +306,9 @@ class SettingsDialog(QDialog):
         s.manual_region = self._manual_region
         s.fps = self.fps.value()
         s.game_overlay = self.game_overlay.isChecked()
+        s.nav_compass = self.nav_compass.isChecked()
+        s.nav_compass_x = self.nav_compass_x.value() / 100
+        s.nav_compass_y = self.nav_compass_y.value() / 100
         backend = str(self.backend.currentData())
         if backend != s.backend:
             s.auto_backend = None if backend == AUTO else s.auto_backend
