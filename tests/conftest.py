@@ -71,3 +71,19 @@ def profiles() -> dict[str, HudProfile]:
     _require_assets()
     manifest = load_manifest(ASSETS / "profiles" / "manifest.json")
     return {e.key: load_hud_profile(ASSETS / "profiles" / e.file) for e in manifest}
+
+
+@pytest.fixture
+def app_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Data and config under `tmp_path` for a whole DesktopApp; no session pings to FrontDesk."""
+    from scanlake_desktop import paths
+
+    _require_assets()
+    monkeypatch.setenv("SCANLAKE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SCANLAKE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("SCANLAKE_NO_HOTKEYS", "1")
+    monkeypatch.setenv("SCANLAKE_FORMAT_URL", str(ASSETS / "format" / "format.json"))
+    monkeypatch.setenv("SCANLAKE_FRONTDESK_URL", "")
+    for fn in (paths.config_dir, paths.data_dir, paths.portable_root):
+        fn.cache_clear()
+    return tmp_path

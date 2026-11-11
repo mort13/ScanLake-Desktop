@@ -59,13 +59,17 @@ class Uploader:
     def send(self, batch: BatchRow) -> UploadOutcome:
         items = dict(self.db.batch_items(batch.batch_id))
         captures = self.db.live_captures(items)
+        # A final batch with nothing left in it (its scans went out in earlier batches) still
+        # goes out, with zero rows shaped like the session's scans: the Store reports the close
+        # to FrontDesk. A session without scans never reaches the Store; the app sends a discard.
+        shape = captures or (self.db.captures(batch.session_id) if batch.is_final else [])
         fmt = self.current_format()
-        if not captures:  # everything in it was deleted before it went out
+        if not shape:  # its scans were deleted before it went out, or the session has none
             self.db.mark_batch_done(batch.batch_id, fmt.version, [])
             return UploadOutcome(batch.batch_id, batch.session_id, batch.batch_number, True)
 
-        scan_columns = {c for cap in captures for c in cap.scan}
-        row_columns = sorted({c for cap in captures for row in cap.rows for c in row})
+        scan_columns = {c for cap in shape for c in cap.scan}
+        row_columns = sorted({c for cap in shape for row in cap.rows for c in row})
         cov = coverage_of_columns(fmt, scan_columns, row_columns)
         try:
             if not cov.complete:
@@ -91,7 +95,8 @@ class Uploader:
             return self._failed(batch, f"{type(err).__name__}: {err}", False)
 
         self.db.mark_batch_done(batch.batch_id, fmt.version, receipt.keys)
-        self._export(files)
+        if captures:
+            self._export(files)
         log.info("uploaded batch %s/%s (%d scans)", batch.session_id, batch.batch_number,
                  len(captures))  # fmt: skip
         return UploadOutcome(batch.batch_id, batch.session_id, batch.batch_number, True)

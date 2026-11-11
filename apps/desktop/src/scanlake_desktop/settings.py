@@ -1,7 +1,8 @@
 """User settings, stored as JSON in the config folder.
 
 Endpoints are not stored: they default to production and can be overridden per run with
-SCANLAKE_STORE_URL / SCANLAKE_GATEWAY_URL / SCANLAKE_AUTH_URL / SCANLAKE_FORMAT_URL.
+SCANLAKE_STORE_URL / SCANLAKE_GATEWAY_URL / SCANLAKE_AUTH_URL / SCANLAKE_FORMAT_URL /
+SCANLAKE_FRONTDESK_URL (empty: no session pings to the landing page).
 """
 
 from __future__ import annotations
@@ -114,13 +115,16 @@ class Endpoints:
     gateway: str
     auth: str
     format: str
+    frontdesk: str
 
     @classmethod
     def from_env(cls) -> Endpoints:
         gateway = os.environ.get("SCANLAKE_GATEWAY_URL", "https://gateway.scanlake.rocks")
+        frontdesk = os.environ.get("SCANLAKE_FRONTDESK_URL", "https://scanlake.rocks")
         return cls(
             store=os.environ.get("SCANLAKE_STORE_URL", "https://scanlake-store.mo-55d.workers.dev"),
             gateway=gateway.rstrip("/"),
             auth=os.environ.get("SCANLAKE_AUTH_URL", "https://auth.scanlake.rocks").rstrip("/"),
             format=os.environ.get("SCANLAKE_FORMAT_URL", gateway.rstrip("/") + "/api/format"),
+            frontdesk=frontdesk.rstrip("/"),
         )

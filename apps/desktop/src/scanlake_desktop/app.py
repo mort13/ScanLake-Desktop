@@ -42,6 +42,7 @@ from scanlake_desktop.worker.pipeline_worker import (
     WorkerConfig,
 )
 from scanlake_inference.registry import available_backends
+from scanlake_io import frontdesk_client
 from scanlake_io.format_source import load_format
 from scanlake_io.store_client import StoreClient
 
@@ -159,6 +160,8 @@ class DesktopApp(QObject):
         self._refresh_format_in_background()
         self.account.refresh()
         self._check_updates()
+        if self.sessions.session is not None:  # resumed from the last run
+            self._ping_frontdesk(self.sessions.session.session_id, "open")
 
     # -- setup ----------------------------------------------------------------
 
@@ -493,16 +496,28 @@ class DesktopApp(QObject):
 
     def start_session(self) -> None:
         system, gravity_well, region = self.window.session_bar.location()
-        self.sessions.start(system, gravity_well, region, self.ship.key)
+        session = self.sessions.start(system, gravity_well, region, self.ship.key)
+        self._ping_frontdesk(session.session_id, "open")
         self._refresh_session()
 
     def close_session(self) -> None:
+        session = self.sessions.session
         number = self.sessions.close()
+        if session is not None and session.scans == 0:
+            # Its final batch is empty and never reaches the Store, which would report the close
+            self._ping_frontdesk(session.session_id, "discard")
         self.clear()
         self._refresh_session()
         if number:
             self.uploader.wake()
         self.window.flash("Session closed" + (", uploading" if number else ""))
+
+    def _ping_frontdesk(self, session_id: str, kind: frontdesk_client.Kind) -> None:
+        """Tells the landing page that a session is open or discarded (best effort, off-thread)."""
+        url, agent = self.endpoints.frontdesk, f"ScanLakeDesktop/{self.version}"
+        run_in_background(
+            lambda: frontdesk_client.ping(url, session_id, kind, user_agent=agent), lambda _: None
+        )
 
     def change_ship(self, key: str) -> None:
         if key in self.ships and key != self.settings.ship:

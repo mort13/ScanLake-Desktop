@@ -185,6 +185,41 @@ def _mock_upload(router: respx.Router) -> list[dict[str, bytes]]:
 
 
 @respx.mock
+def test_close_after_upload_still_sends_the_final_batch(
+    db: Database, layout: SlotLayout, fmt: ParquetFormat, tmp_path: Path
+) -> None:
+    service = _service(db)
+    service.save(*_values(), layout, coverage(fmt, layout), ship="mole")
+    service.queue_upload()
+    _mock_session(respx.mock)
+    sent = _mock_upload(respx.mock)
+    uploader = _uploader(db, fmt, tmp_path)
+    uploader.run_due()
+
+    assert service.close() == 2  # every scan is already uploaded: the final batch is empty
+    [outcome] = uploader.run_due()
+    assert outcome.ok and db.due_batches() == []
+    assert [(f["batchNumber"], f["isFinal"]) for f in sent] == [(b"1", b"false"), (b"2", b"true")]
+    # No rows, but the same columns as the session's scans, so the Store's format check passes
+    first, final = (pq.read_table(io.BytesIO(f["scans"])) for f in sent)
+    assert final.num_rows == 0 and final.schema == first.schema
+    assert not [p for p in (tmp_path / "export").iterdir() if "batch2" in p.name]
+
+
+@respx.mock
+def test_session_without_scans_never_reaches_the_store(
+    db: Database, layout: SlotLayout, fmt: ParquetFormat, tmp_path: Path
+) -> None:
+    service = _service(db)
+    saved = service.save(*_values(), layout, coverage(fmt, layout), ship="mole")
+    service.delete(saved.capture_id)
+    service.close()  # 0 scans: the app sends FrontDesk a discard instead
+    upload = respx.post(f"{STORE}/api/upload")
+    [outcome] = _uploader(db, fmt, tmp_path).run_due()
+    assert outcome.ok and not upload.called and db.due_batches() == []
+
+
+@respx.mock
 def test_rejected_batch_keeps_violations(
     db: Database, layout: SlotLayout, fmt: ParquetFormat, tmp_path: Path
 ) -> None:

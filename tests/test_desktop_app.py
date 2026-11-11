@@ -49,19 +49,6 @@ def _hud_frame(hud: HudProfile, engine: object) -> np.ndarray:
     return frame
 
 
-@pytest.fixture
-def app_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    from scanlake_desktop import paths
-
-    monkeypatch.setenv("SCANLAKE_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("SCANLAKE_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv("SCANLAKE_NO_HOTKEYS", "1")
-    monkeypatch.setenv("SCANLAKE_FORMAT_URL", str(ASSETS / "format" / "format.json"))
-    for fn in (paths.config_dir, paths.data_dir, paths.portable_root):
-        fn.cache_clear()
-    return tmp_path
-
-
 def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfile]) -> None:  # type: ignore[no-untyped-def]
     from scanlake_desktop.app import DesktopApp
     from scanlake_desktop.capture.source import write_image
