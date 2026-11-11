@@ -3,11 +3,15 @@
 The text is drawn in a fixed-width bitmap font, plain white with a dark shadow, right-aligned at
 the top right; it never shakes, scales or glows. That makes an exact reader simple:
 
-- a `DebugFont` holds one template per glyph, cut from real screenshots (`scanlake_training.
-  debug_font` builds them), with the font's advance (cell pitch);
+- a `DebugFont` holds templates per glyph, cut from real screen captures (`scanlake_training.
+  debug_font` builds them), with the font's advance (cell pitch). With a fractional advance
+  such as 7.5 px every other glyph starts half a pixel into its cell and the game draws it a
+  little differently there, so such fonts hold a second, half-pixel template per glyph;
 - the line prefixes "CamDir:" and "Zone:" are found by template matching, which gives each
   line's position and grid phase (with a fractional advance such as 7.5 px the cells step
   7, 8, 7, 8 ... or 8, 7, 8, 7 ... px, depending on where the right-aligned line starts);
+  a line the coarse search misses (a bright background behind its prefix) is found on the
+  row grid of the others;
 - every cell after a prefix is classified by normalised correlation against all glyphs;
 - inside numbers, the look-alikes O, I and l are read as 0 and 1.
 
@@ -38,10 +42,14 @@ INK = 170  # whiteness a glyph pixel reaches at least ...
 INK_CONTRAST = 80  # ... or how far it stands above its cell (a thin "_" may stay dim)
 PREFIX_MIN = 0.75  # correlation that makes a prefix match
 GLYPH_MIN = 0.6  # below this a cell is UNKNOWN
-MAX_BLANK = 3  # blank cells in a row end a line ("CamDir: -155  45 -179" has two)
+# Blank cells in a row that end a line. CamDir pads its angles to columns of 3, 3 and 4
+# characters ("CamDir: -155  45 -179", "CamDir:   9  11 -130"), so a one-digit angle leaves a
+# gap of 3 blanks, or 4 in the last column; the lines end at the screen edge anyway.
+MAX_BLANK = 5
 MAX_UNKNOWN = 3  # unknown cells in a row end a line (we ran into the HUD)
 COARSE = 2  # prefixes are first looked for at 1/COARSE scale (cheap), then verified
 COARSE_MIN = 0.45  # correlation that makes a coarse candidate (true: 0.5-0.85; verified after)
+ROW_SLACK = 2  # px a line may sit off the row grid of the lines found (searched both ways)
 
 
 @dataclass(frozen=True)
@@ -76,8 +84,9 @@ def whiteness(image: np.ndarray) -> np.ndarray:
 class DebugFont:
     """Glyph templates of one size of the debug font.
 
-    Stored as `<name>.json` (chars, advance, cell size, where it was cut) plus `<name>.png`:
-    the glyphs' whiteness side by side, `cell_w` pixels each, in `chars` order.
+    Stored as `<name>.json` (chars, advance, cell size, where it was cut, which glyphs came
+    from lossless captures) plus `<name>.png`: the glyphs' whiteness side by side, `cell_w`
+    pixels each, in `chars` order (and `<name>.half.png`, the half-pixel ones, likewise).
     """
 
     name: str
@@ -87,37 +96,63 @@ class DebugFont:
     cell_h: int
     glyphs: np.ndarray  # (len(chars), cell_h, cell_w) uint8 whiteness
     source: str = ""  # e.g. "2560x1440": where the glyphs were cut
+    # With a fractional advance (7.5 px) every other glyph starts half a pixel into its cell,
+    # and the game draws it a little differently there (smoothed across the pixel boundary):
+    # those glyphs, in `chars` order. None: drawn alike (a whole-pixel advance, or a font cut
+    # before this was known).
+    half: np.ndarray | None = None
+    # The glyphs cut from lossless captures (the screen as the app grabs it): JPEG screenshots,
+    # which smear the thin strokes, never replace them
+    lossless: str = ""
 
     def __post_init__(self) -> None:
-        if self.glyphs.shape != (len(self.chars), self.cell_h, self.cell_w):
+        shape = (len(self.chars), self.cell_h, self.cell_w)
+        if self.glyphs.shape != shape or (self.half is not None and self.half.shape != shape):
             raise ValueError(f"font {self.name}: glyph array does not match chars/cell size")
 
     @classmethod
     def load(cls, json_path: Path) -> DebugFont:
         meta = json.loads(json_path.read_text(encoding="utf-8"))
-        strip = cv2.imread(str(json_path.with_suffix(".png")), cv2.IMREAD_GRAYSCALE)
-        if strip is None:
-            raise ValueError(f"font {json_path.stem}: {json_path.with_suffix('.png')} missing")
         chars, w, h = meta["chars"], int(meta["cell_w"]), int(meta["cell_h"])
-        glyphs = np.stack([strip[:h, i * w : (i + 1) * w] for i in range(len(chars))])
-        return cls(json_path.stem, chars, float(meta["advance"]), w, h, glyphs,
-                   meta.get("source", ""))  # fmt: skip
+
+        def strip(path: Path) -> np.ndarray:
+            image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                raise ValueError(f"font {json_path.stem}: {path} missing")
+            return np.stack([image[:h, i * w : (i + 1) * w] for i in range(len(chars))])
+
+        half = strip(_half_path(json_path)) if meta.get("half") else None
+        return cls(json_path.stem, chars, float(meta["advance"]), w, h,
+                   strip(json_path.with_suffix(".png")), meta.get("source", ""), half,
+                   meta.get("lossless", ""))  # fmt: skip
 
     def save(self, folder: Path) -> Path:
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{self.name}.json"
         meta = {"chars": self.chars, "advance": self.advance, "cell_w": self.cell_w,
-                "cell_h": self.cell_h, "source": self.source}  # fmt: skip
+                "cell_h": self.cell_h, "source": self.source,
+                "half": self.half is not None, "lossless": self.lossless}  # fmt: skip
         path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         cv2.imwrite(str(path.with_suffix(".png")), np.hstack(list(self.glyphs)))
+        if self.half is not None:
+            cv2.imwrite(str(_half_path(path)), np.hstack(list(self.half)))
         return path
 
-    def glyph(self, char: str) -> np.ndarray:
-        return self.glyphs[self.chars.index(char)]
+    def glyph(self, char: str, half: bool = False) -> np.ndarray:
+        glyphs = self.half if half and self.half is not None else self.glyphs
+        return glyphs[self.chars.index(char)]
+
+    def variants(self) -> list[np.ndarray]:
+        """Every set of glyph templates: whole-pixel, then half-pixel when the font has them."""
+        return [self.glyphs] if self.half is None else [self.glyphs, self.half]
 
     def cell_x(self, i: int, phase: float = 0.0) -> int:
         """Left edge of cell `i` of a line whose first cell starts `phase` px into a pixel."""
         return math.floor(phase + i * self.advance)
+
+    def is_half(self, i: int, phase: float = 0.0) -> bool:
+        """Whether glyph `i` of such a line starts half a pixel into its cell."""
+        return 0.25 <= (phase + i * self.advance) % 1 < 0.75
 
     def phases(self) -> tuple[float, ...]:
         return phases(self.advance)
@@ -129,8 +164,12 @@ class DebugFont:
         for i, char in enumerate(text):
             if char in self.chars and char != " ":
                 x = self.cell_x(i, phase)
-                out[:, x : x + self.cell_w] = self.glyph(char)
+                out[:, x : x + self.cell_w] = self.glyph(char, self.is_half(i, phase))
         return out
+
+
+def _half_path(json_path: Path) -> Path:
+    return json_path.with_name(f"{json_path.stem}.half.png")
 
 
 def phases(advance: float) -> tuple[float, ...]:
@@ -186,7 +225,7 @@ def _unit_rows(patches: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 @dataclass
 class _Prepared:
     font: DebugFont
-    unit: np.ndarray  # (n, cell_h*cell_w) glyphs, zero-mean unit rows
+    unit: np.ndarray  # (variants*n, cell_h*cell_w) glyphs, zero-mean unit rows
     # per prefix: (phase, float32 whiteness) for every grid phase of the font
     prefixes: dict[str, list[tuple[float, np.ndarray]]] = field(default_factory=dict)
     coarse: dict[str, np.ndarray] = field(default_factory=dict)  # phase 0 at 1/COARSE
@@ -206,7 +245,7 @@ class DebugTextReader:
         for font in fonts:
             if not all(c in font.chars for p in PREFIXES for c in p):
                 continue  # cannot even find the lines
-            unit, _ = _unit_rows(font.glyphs)
+            unit, _ = _unit_rows(np.concatenate(font.variants()))
             prefixes = {
                 p: [(ph, font.render(p, phase=ph).astype(np.float32)) for ph in font.phases()]
                 for p in PREFIXES
@@ -239,6 +278,7 @@ class DebugTextReader:
         for prefix in PREFIXES:
             found = _find(white, small, p.prefixes[prefix], p.coarse[prefix], p.font.cell_h)
             hits += [(y, x, phase, prefix) for x, y, phase in found]
+        hits += self._more_rows(p, white, hits)
         hits.sort()
         lines: list[TextLine] = []
         for y, x, phase, prefix in hits:
@@ -248,14 +288,60 @@ class DebugTextReader:
             lines.append(TextLine(digits_in_numbers(prefix + rest), score, x, y))
         return lines
 
+    def _more_rows(
+        self, p: _Prepared, white: np.ndarray, hits: list[tuple[int, int, float, str]]
+    ) -> list[tuple[int, int, float, str]]:
+        """Lines the coarse search missed, found on the row grid of the ones it found.
+
+        Over a bright background a line's prefix can score too low at 1/COARSE scale (the thin
+        font loses its strokes there), although it matches well at full scale. The debug lines
+        sit one cell height apart, so the rows next to every line found are searched at full
+        scale, outward while lines keep turning up.
+        """
+        pitch = p.font.cell_h
+        known = [y for y, *_ in hits]
+        todo = [y + d for y in known for d in (-pitch, pitch)]
+        tried: set[int] = set()
+        extra: list[tuple[int, int, float, str]] = []
+        while todo:
+            y = todo.pop()
+            if y in tried or y < 0 or any(abs(y - k) < pitch // 2 for k in known):
+                continue
+            tried.add(y)
+            hit = self._search_row(p, white, y)
+            if hit is not None:
+                extra.append(hit)
+                known.append(hit[0])
+                todo += [hit[0] - pitch, hit[0] + pitch]
+        return extra
+
+    @staticmethod
+    def _search_row(p: _Prepared, white: np.ndarray, y: int) -> tuple[int, int, float, str] | None:
+        """The best prefix match in the band around row `y`, if it is good enough."""
+        y0 = max(0, y - ROW_SLACK)
+        band = white[y0 : y + p.font.cell_h + ROW_SLACK].astype(np.float32)
+        best: tuple[float, int, int, float, str] = (-1.0, 0, 0, 0.0, "")
+        for prefix in PREFIXES:
+            for phase, template in p.prefixes[prefix]:
+                if band.shape[0] < template.shape[0] or band.shape[1] < template.shape[1]:
+                    continue
+                result = cv2.matchTemplate(band, template, cv2.TM_CCOEFF_NORMED)
+                result[~np.isfinite(result)] = -1.0
+                _, score, _, (dx, dy) = cv2.minMaxLoc(result)
+                if score > best[0]:
+                    best = (score, dx, dy, phase, prefix)
+        score, dx, dy, phase, prefix = best
+        return (y0 + dy, dx, phase, prefix) if score >= PREFIX_MIN else None
+
     def _line(
         self, p: _Prepared, white: np.ndarray, x0: int, y0: int, start: int, phase: float
     ) -> tuple[str, float]:
         """Text of the cells after a prefix, and the lowest glyph correlation among them.
 
         Every cell up to the image edge is classified at once (one matrix product), each at
-        -1, 0 and +1 px to absorb the rounding of a fractional advance; the line then ends at
-        a run of blank or unknown cells.
+        -1, 0 and +1 px to absorb the rounding of a fractional advance, against every variant
+        of every glyph (whole- and half-pixel: a line's phase can be judged wrong, so each cell
+        takes its best); the line then ends at a run of blank or unknown cells.
         """
         font = p.font
         h, w = font.cell_h, font.cell_w
@@ -280,7 +366,8 @@ class DebugTextReader:
         # product when the game keeps every core busy
         scores = np.einsum("gk,ck->gc", p.unit, unit).reshape(len(p.unit), n, len(offsets))
         scores[:, (norms < 1e-3).reshape(n, len(offsets))] = -1.0
-        per_glyph = scores.max(axis=2)  # (glyphs, cells)
+        # (variants, glyphs, cells) -> each glyph's best variant and offset per cell
+        per_glyph = scores.max(axis=2).reshape(-1, len(font.chars), n).max(axis=0)
         best_glyph = per_glyph.argmax(axis=0)
         best = per_glyph[best_glyph, np.arange(n)]
 

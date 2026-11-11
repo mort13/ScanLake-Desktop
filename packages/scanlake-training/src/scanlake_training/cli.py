@@ -184,6 +184,24 @@ def _font_cut(args: argparse.Namespace) -> int:
     return debug_font.run_cut(args.shots, args.name, args.advance, args.out)
 
 
+def _font_recut(args: argparse.Namespace) -> int:
+    from scanlake_training import debug_font
+
+    return debug_font.run_recut(args.frames, args.names, args.font, args.out)
+
+
+def _font_draft(args: argparse.Namespace) -> int:
+    from scanlake_training import debug_font
+
+    return debug_font.run_draft(args.shots, args.font)
+
+
+def _font_learn(args: argparse.Namespace) -> int:
+    from scanlake_training import debug_font
+
+    return debug_font.run_learn(args.shots, args.font, args.out)
+
+
 def _font_read(args: argparse.Namespace) -> int:
     from scanlake_training import debug_font
 
@@ -260,6 +278,21 @@ def main(argv: list[str] | None = None) -> int:
     fcut.add_argument("--advance", type=float, help="cell pitch in px (default: fitted)")
     fcut.add_argument("--out", help="folder (default: the shipped fonts in scanlake_core)")
     fcut.set_defaults(run=_font_cut)
+    frecut = fsub.add_parser("recut", help="improve the font from live debug-text captures")
+    frecut.add_argument("frames", nargs="+", help="lossless PNGs of the debug-text corner")
+    frecut.add_argument("--names", required=True, help="text file: every zone name, one per line")
+    frecut.add_argument("--font", help="font folder to start from (default: the shipped fonts)")
+    frecut.add_argument("--out", help="folder (default: the shipped fonts in scanlake_core)")
+    frecut.set_defaults(run=_font_recut)
+    fdraft = fsub.add_parser("draft", help="write SHOT.draft.txt: every debug line as read")
+    fdraft.add_argument("shots", nargs="+", help="screenshots (the game's JPEGs are fine)")
+    fdraft.add_argument("--font", help="font folder (default: the shipped fonts)")
+    fdraft.set_defaults(run=_font_draft)
+    flearn = fsub.add_parser("learn", help="add glyphs from screenshots + SHOT.txt transcripts")
+    flearn.add_argument("shots", nargs="+", help="screenshots with SHOT.txt next to them")
+    flearn.add_argument("--font", help="font folder to start from (default: the shipped fonts)")
+    flearn.add_argument("--out", help="folder (default: the shipped fonts in scanlake_core)")
+    flearn.set_defaults(run=_font_learn)
     fread = fsub.add_parser("read", help="read the debug text of a screenshot")
     fread.add_argument("shot")
     fread.add_argument("--font", help="font folder (default: the shipped fonts)")

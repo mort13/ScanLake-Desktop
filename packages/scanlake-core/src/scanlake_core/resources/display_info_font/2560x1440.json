@@ -1,7 +1,9 @@
 {
-  "chars": ",-.0123456789:CDFGHIMOPRSTVZ_abcdefgiklmnoprstwy",
+  "chars": "()+,-.0123456789:ACDEFGHILMNOPRSTUVXYZ_abcdefghijklmnoprstuvwxy",
   "advance": 7.5,
   "cell_w": 7,
   "cell_h": 13,
-  "source": "2560x1440"
+  "source": "2560x1440",
+  "half": true,
+  "lossless": "-.0123456789:FPRSZ_acegklmnoprsty"
 }

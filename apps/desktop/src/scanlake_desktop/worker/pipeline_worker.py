@@ -8,15 +8,18 @@ While the HUD is not found the loop slows to 2 frames per second, and every few 
 searches the whole monitor at the expected scale to find where the HUD actually is. A frame that
 fails (screen not readable, bad region) is reported once and skipped; it never ends the loop.
 
-The loop also reads the ship position from the game's debug text in the top-right corner
-(r_DisplayInfo), HUD or not (the live panel previews it), about once a second, or every few
-seconds while there is none.
+The ship position is read from the game's debug text in the top-right corner (r_DisplayInfo),
+HUD or not (the live panel previews it), about once a second (4 times while navigating), or
+every few seconds while there is none. Live, a thread of its own does that and sends each
+position at once: the HUD search can take seconds a frame while the game is running, and the
+navigation must not wait for it. Replayed images are read in the loop, one frame at a time.
 """
 
 from __future__ import annotations
 
 import logging
 import queue
+import threading
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -48,8 +51,9 @@ log = logging.getLogger(__name__)
 SEARCH_FPS = 2.0
 WIDE_SEARCH_EVERY_S = 3.0
 LOST_RESET_S = 1.0
-POSITION_EVERY_S = 1.0  # debug-text reads while it is visible ...
+POSITION_EVERY_S = 1.0  # debug-text reads while it is visible (WorkerConfig default) ...
 POSITION_IDLE_S = 3.0  # ... and while it is not (r_DisplayInfo off)
+POSITION_NAV_S = 0.25  # ... and while it is visible during navigation or calibration
 POSITION_FRESH_S = 2.5  # a staged scan takes the debug-text position only if this fresh
 EMIT_EVERY_S = 0.1
 MIN_REGION = 32  # px: a smaller capture region cannot hold the HUD
@@ -72,6 +76,9 @@ class WorkerConfig:
     collect_crops: bool = False  # keep each ROI's crop for training data (dev mode)
     model_stamp: str = ""  # changes when the model files change -> new engine
     replay: tuple[Path, ...] = ()  # dev mode: read these images instead of the screen
+    # Debug-text reads while it is visible; faster while navigating to a cluster. The search
+    # tick (no HUD in view) speeds up to match, or reads would wait for the next frame.
+    position_every_s: float = POSITION_EVERY_S
 
 
 @dataclass(frozen=True)
@@ -95,8 +102,18 @@ class LiveState:
     position_lines: tuple[tuple[str, float], ...] = ()
 
 
+@dataclass(frozen=True)
+class PositionRead:
+    """A ship position from the debug text, sent the moment it is read (live capture)."""
+
+    position: Position
+    position_t: float  # time.time()
+    lines: tuple[tuple[str, float], ...]
+
+
 class PipelineWorker(QThread):
     live = Signal(object)  # LiveState
+    position = Signal(object)  # PositionRead, from the position thread, between LiveStates
     problem = Signal(str)
     backend_resolved = Signal(str)  # what "auto" picked (to remember it)
 
@@ -132,6 +149,51 @@ class PipelineWorker(QThread):
             loop.close()
 
 
+class _PositionThread(threading.Thread):
+    """Reads the debug text on its own while capturing live.
+
+    With the game keeping every core busy, a frame of the HUD search can take a second and the
+    whole-monitor search several; read between them, positions came seconds apart and the
+    navigation went stale. This thread grabs the corner with its own screen handle and sends
+    every new position at once (`PipelineWorker.position`).
+    """
+
+    def __init__(self, loop: _Loop) -> None:
+        super().__init__(name="debug-text", daemon=True)
+        self.loop = loop
+        self._stopping = threading.Event()
+
+    def stop(self) -> None:
+        self._stopping.set()
+        if self.is_alive() and threading.current_thread() is not self:
+            self.join(timeout=2.0)
+
+    def run(self) -> None:
+        source: CaptureSource | None = None
+        try:
+            while not self._stopping.is_set():
+                loop = self.loop
+                config = loop.config
+                if config is None or config.replay or loop.paused:
+                    self._stopping.wait(0.2)
+                    continue
+                if source is None:
+                    source = MssSource()  # mss handles belong to the thread that grabs
+                if loop._read_position(time.time(), None, source):
+                    with loop.position_lock:
+                        position, t, lines = loop.position, loop.position_t, loop.position_lines
+                    assert position is not None
+                    loop.w.position.emit(PositionRead(position, t, lines))
+                now = time.time()
+                due = loop.last_position_try + loop._position_every(now) - now
+                self._stopping.wait(min(max(due, 0.02), 0.5))
+        except Exception:
+            log.exception("the debug-text thread stopped")
+        finally:
+            if source is not None:
+                source.close()
+
+
 class _Loop:
     def __init__(self, worker: PipelineWorker) -> None:
         self.w = worker
@@ -156,8 +218,12 @@ class _Loop:
         self.position_lines: tuple[tuple[str, float], ...] = ()
         self.last_position_try = 0.0
         self.position_failed = False
+        self.position_lock = threading.Lock()
+        self.positions: _PositionThread | None = None  # live capture: reads the debug text
 
     def close(self) -> None:
+        if self.positions is not None:
+            self.positions.stop()
         if self.source is not None:
             self.source.close()
 
@@ -175,7 +241,10 @@ class _Loop:
             except Exception as err:  # one bad frame must not stop capturing
                 locked = False
                 self._frame_failed(err)
-            fps = self.config.fps if locked else min(self.config.fps, SEARCH_FPS)
+            # Replayed, the debug text is read from each frame: tick fast enough for it
+            replay = self.config.replay
+            search = max(SEARCH_FPS, 1.0 / self.config.position_every_s) if replay else SEARCH_FPS
+            fps = self.config.fps if locked else min(self.config.fps, search)
             wait = 1.0 / fps - (time.perf_counter() - started)
             if wait > 0 and not self._drain(wait):
                 return
@@ -210,6 +279,9 @@ class _Loop:
             if self.source is not None:
                 self.source.close()
             self.source = FileSource(list(config.replay)) if config.replay else MssSource()
+        if not config.replay and self.positions is None:
+            self.positions = _PositionThread(self)
+            self.positions.start()
         if old is None or old.monitor != config.monitor or old.hud is not config.hud:
             self.found_region = None
 
@@ -300,7 +372,8 @@ class _Loop:
             ):
                 self.last_wide = now
                 self._wide_search(expected)
-        self._read_position(now, frame)
+        if self.config.replay:  # live, the position thread reads it
+            self._read_position(now, frame)
 
         self.frame_times.append(now)
         self.frame_times = [t for t in self.frame_times if now - t < 2.0]
@@ -311,6 +384,9 @@ class _Loop:
                 n: (m.x, m.y, m.w, m.h, m.confidence) for n, m in fix.matches.items() if m.found
             }
             fps = (len(self.frame_times) - 1) / max(now - self.frame_times[0], 1e-6)
+            with self.position_lock:
+                position, position_t = self.position, self.position_t
+                position_lines = self.position_lines
             self.w.live.emit(
                 LiveState(
                     t=now,
@@ -326,44 +402,58 @@ class _Loop:
                     timings=result.timings,
                     frame=frame if self.config.debug else None,
                     anchors=anchors,
-                    position=self.position,
-                    position_t=self.position_t,
-                    position_lines=self.position_lines,
+                    position=position,
+                    position_t=position_t,
+                    position_lines=position_lines,
                 )
             )
         return result.locked
 
-    def _read_position(self, now: float, frame: np.ndarray) -> None:
-        """Reads the debug text now and then; keeps the last position that parsed.
+    def _position_every(self, now: float) -> float:
+        assert self.config is not None
+        seen = self.position is not None and now - self.position_t < POSITION_IDLE_S
+        return self.config.position_every_s if seen else POSITION_IDLE_S
+
+    def _read_position(
+        self, now: float, frame: np.ndarray | None, source: CaptureSource | None = None
+    ) -> bool:
+        """Reads the debug text now and then; keeps the last position that parsed. True: a new
+        position was read.
 
         A replayed frame is a whole screen (or a region without the corner), so its corner is
-        cut from it; the screen's corner is grabbed on its own. Failures never stop capturing.
+        cut from it; the screen's corner is grabbed on its own (with `source`, the position
+        thread's). Failures never stop capturing.
         """
-        assert self.config is not None and self.source is not None
-        seen = self.position is not None and now - self.position_t < POSITION_IDLE_S
-        if now - self.last_position_try < (POSITION_EVERY_S if seen else POSITION_IDLE_S):
-            return
+        assert self.config is not None
+        if now - self.last_position_try < self._position_every(now):
+            return False
         self.last_position_try = now
         try:
             if self.position_reader is None:
                 self.position_reader = DebugTextReader()
             if not self.position_reader.usable:
-                return
-            image = (
-                corner(frame) if self.config.replay
-                else self.source.grab(self.config.monitor.debug_text_rect)
-            )  # fmt: skip
+                return False
+            if self.config.replay:
+                assert frame is not None
+                image = corner(frame)
+            else:
+                grabber = source or self.source
+                assert grabber is not None
+                image = grabber.grab(self.config.monitor.debug_text_rect)
             lines = self.position_reader.read(image)
-            self.position_lines = tuple((line.text, line.score) for line in lines)
-            position = parse_position(self.position_lines)
+            position_lines = tuple((line.text, line.score) for line in lines)
+            position = parse_position(position_lines)
             self.position_failed = False
         except Exception:
             if not self.position_failed:
                 log.exception("reading the debug text failed")
             self.position_failed = True
-            return
-        if position is not None:
-            self.position, self.position_t = position, now
+            return False
+        with self.position_lock:
+            self.position_lines = position_lines
+            if position is not None:
+                self.position, self.position_t = position, now
+        return position is not None
 
     def _wide_search(self, expected: float) -> None:
         """Looks for the HUD on the whole monitor (only at the expected scale, to stay cheap)."""
