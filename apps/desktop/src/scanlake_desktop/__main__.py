@@ -88,6 +88,12 @@ def self_test(report_path: Path) -> int:
         from PySide6 import __version__ as pyside_version
 
         report["pyside6"] = pyside_version
+        # Uploads, login and shared sessions need TLS: a bundle with another OpenSSL than this
+        # Python's fails right here
+        import ssl
+
+        ssl.create_default_context()
+        report["openssl"] = ssl.OPENSSL_VERSION
         import websockets.sync.client  # noqa: F401  (shared sessions)
         from websockets.version import version as websockets_version
 
