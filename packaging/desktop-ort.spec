@@ -14,6 +14,7 @@ ROOT = Path(SPECPATH).parent
 APP = ROOT / "apps" / "desktop" / "src" / "scanlake_desktop"
 
 datas = [(str(ROOT / "assets"), "assets")]
+datas += [(str(APP / "resources"), "scanlake_desktop/resources")]  # the theme's fonts and glyphs
 datas += collect_data_files(
     "scanlake_core", includes=["domain/data/*.json", "resources/display_info_font/*"]
 )

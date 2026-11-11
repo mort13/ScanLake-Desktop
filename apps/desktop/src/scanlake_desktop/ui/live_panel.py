@@ -23,6 +23,8 @@ from scanlake_inference.registry import LABELS
 
 DOT = "●"
 STABILITY_COLOR = {Stability.STABLE: OK, Stability.UNSTABLE: WARN, Stability.EMPTY: MUTED}
+# The theme has one hue: the shape says it too
+STABILITY_DOT = {Stability.STABLE: DOT, Stability.UNSTABLE: "○", Stability.EMPTY: "·"}
 LOCAL = "◂ local"
 
 
@@ -56,7 +58,7 @@ class LivePanel(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._rois: list[str] = []
         self._position_title = QLabel()
-        self._position_title.setStyleSheet("font-weight: 600")
+        self._position_title.setProperty("role", "heading")
         self._position = QLabel()
         self._position.setWordWrap(True)
         self._position.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -112,6 +114,7 @@ class LivePanel(QWidget):
                     f"{t or '∅'} {s:.0%}" for t, s in vote.candidates[1:]
                 )
             value.setToolTip(tip)
+            dot.setText(STABILITY_DOT[vote.stability])
             dot.setForeground(QBrush(QColor(STABILITY_COLOR[vote.stability])))
             dot.setToolTip(vote.stability.value)
         self._show_position(state)
@@ -139,7 +142,7 @@ class LivePanel(QWidget):
 
     def _set_position_title(self, text: str, color: str) -> None:
         self._position_title.setText(text)
-        self._position_title.setStyleSheet(f"font-weight: 600; color: {color}")
+        self._position_title.setStyleSheet(f"color: {color}")
 
     def position_title(self) -> str:
         return self._position_title.text()

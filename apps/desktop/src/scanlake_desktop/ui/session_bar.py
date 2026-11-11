@@ -26,6 +26,7 @@ class SessionBar(QWidget):
         self.system.addItems(list(tables().systems))
         self.gravity_well = QComboBox()
         self.gravity_well.setEditable(True)
+        self.gravity_well.setMinimumWidth(120)
         self.region = QComboBox()
         self.region.setEditable(True)
         self.region.setMinimumWidth(140)
@@ -34,6 +35,7 @@ class SessionBar(QWidget):
         self.next_cluster = QPushButton("▶")
         for b in (self.prev_cluster, self.next_cluster):
             b.setFixedWidth(28)
+            b.setStyleSheet("padding: 4px 0;")  # the arrow needs the whole width
         self.cluster = QLabel("—")
         self.new_cluster = QPushButton("New rock")
 

@@ -33,7 +33,14 @@ from scanlake_core.recognition import RoiReading
 from scanlake_core.voting import Stability
 from scanlake_desktop.capture.source import Monitor
 from scanlake_desktop.ui.region_overlay import screen_for
-from scanlake_desktop.ui.style import ERROR, MANUAL, OK, WARN
+from scanlake_desktop.ui.style import (
+    HUD_ERROR,
+    HUD_FONT,
+    HUD_MANUAL,
+    HUD_OK,
+    HUD_TEXT,
+    HUD_WARN,
+)
 from scanlake_desktop.worker.pipeline_worker import LiveState
 
 log = logging.getLogger(__name__)
@@ -42,10 +49,10 @@ WDA_EXCLUDEFROMCAPTURE = 0x11
 STALE_S = 1.5  # no live update for this long (paused, app hidden): the labels go
 FLASH_MS = 2500
 RIGHT_MARGIN = 160  # logical px beyond the capture region, room for labels of the right column
-STABILITY_COLORS = {Stability.STABLE: OK, Stability.UNSTABLE: WARN}
+STABILITY_COLORS = {Stability.STABLE: HUD_OK, Stability.UNSTABLE: HUD_WARN}
 # Staged values, by the review form's highlight of the cell
-STAGED_COLORS = {"": "#f0f0f0", "warn": WARN, "error": ERROR, "manual": MANUAL}
-MESSAGE_COLORS = {"info": "#f0f0f0", "ok": OK, "warn": WARN, "error": ERROR}
+STAGED_COLORS = {"": HUD_TEXT, "warn": HUD_WARN, "error": HUD_ERROR, "manual": HUD_MANUAL}
+MESSAGE_COLORS = {"info": HUD_TEXT, "ok": HUD_OK, "warn": HUD_WARN, "error": HUD_ERROR}
 
 
 def exclude_from_capture(widget: QWidget) -> bool:
@@ -147,7 +154,7 @@ class GameOverlay(QWidget):
         self._labels: list[Label] = []
         self._message = ("", "info")
         self._last_update = 0.0
-        self._font = QFont()
+        self._font = QFont(HUD_FONT)
         self._font.setPixelSize(13)
         self._font.setBold(True)
         self._message_timer = QTimer(self, singleShot=True, interval=FLASH_MS)
@@ -276,7 +283,7 @@ class GameOverlay(QWidget):
         if text:
             pill = self._pill(metrics, text)
             pill.moveTo(QPointF(4, 4))
-            color = QColor(MESSAGE_COLORS.get(kind, "#f0f0f0"))
+            color = QColor(MESSAGE_COLORS.get(kind, HUD_TEXT))
             self._draw_pill(painter, metrics, pill, [(text, color)])
 
     @staticmethod

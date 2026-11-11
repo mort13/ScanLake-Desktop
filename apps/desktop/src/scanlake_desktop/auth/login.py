@@ -25,8 +25,14 @@ from scanlake_desktop.auth.client import AuthClient, AuthError
 TIMEOUT_S = 300
 
 DONE_PAGE = b"""<!doctype html><html><head><meta charset="utf-8"><title>ScanLake Desktop</title>
-<style>body{font-family:system-ui,sans-serif;background:#16181d;color:#e6e6e6;display:flex;
-align-items:center;justify-content:center;height:100vh;margin:0}div{text-align:center}</style>
+<style>body{font-family:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+background:#0a0602;color:#ffb000;text-shadow:0 0 8px rgba(255,176,0,.28);display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;background:
+repeating-linear-gradient(to bottom,transparent 0 2px,rgba(0,0,0,.22) 2px 3px)}
+div{text-align:center;border:1px solid #a86a10;background:#120b03;padding:22px 28px}
+h2{color:#ffd98a;font-weight:400;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px}
+p{margin:0}</style>
 </head><body><div><h2>%s</h2><p>You can close this tab and go back to ScanLake Desktop.</p>
 </div></body></html>"""
 

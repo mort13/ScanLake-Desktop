@@ -72,6 +72,7 @@ class SettingsDialog(QDialog):
         self._overlay: RegionOverlay | None = None
 
         tabs = QTabWidget()
+        tabs.setUsesScrollButtons(False)  # the dialog is as wide as its tabs need
         tabs.addTab(self._player_tab(), "Player")
         tabs.addTab(self._capture_tab(), "Capture")
         tabs.addTab(self._recognition_tab(backends, active_backend), "Recognition")

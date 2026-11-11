@@ -37,11 +37,11 @@ def _state(locked: bool = True) -> LiveState:
 
 def test_labels_follow_the_rois_and_the_votes() -> None:
     from scanlake_desktop.ui.game_overlay import labels_for
-    from scanlake_desktop.ui.style import OK, WARN
+    from scanlake_desktop.ui.style import HUD_OK, HUD_WARN
 
     labels = {label.text: label for label in labels_for(_state(), dpr=1.0)}
     assert set(labels) == {"11826", "4.58"}  # blank rows and unread fields get nothing
-    assert labels["11826"].color == OK and labels["4.58"].color == WARN
+    assert labels["11826"].color == HUD_OK and labels["4.58"].color == HUD_WARN
     box = labels["11826"].box
     assert (box.x(), box.y(), box.width(), box.height()) == (40, 60, 120, 20)
     # 200 % Windows scaling: Qt draws in logical pixels
@@ -103,12 +103,12 @@ def test_staged_values_by_roi(profiles: dict[str, Any]) -> None:
 
 def test_staged_labels_stay_where_the_values_were_read() -> None:
     from scanlake_desktop.ui.game_overlay import labels_for
-    from scanlake_desktop.ui.style import MANUAL, WARN
+    from scanlake_desktop.ui.style import HUD_MANUAL, HUD_WARN
 
     staged = _staged()
     labels = {label.text: label for label in labels_for(_state(), 1.0, staged)}
     assert set(labels) == {"11900", "4.58"}  # material1 was never read: no place for it
-    assert labels["11900"].color == MANUAL and labels["4.58"].color == WARN
+    assert labels["11900"].color == HUD_MANUAL and labels["4.58"].color == HUD_WARN
     lost = {label.text: label for label in labels_for(_state(locked=False), 1.0, staged)}
     assert lost["11900"].box.y() == 60  # HUD gone: still where it was staged
 

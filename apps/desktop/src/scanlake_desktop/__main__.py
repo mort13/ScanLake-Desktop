@@ -149,12 +149,13 @@ def main(argv: list[str] | None = None) -> int:
     from scanlake_desktop import paths
     from scanlake_desktop.app import DesktopApp
     from scanlake_desktop.settings import load_settings
-    from scanlake_desktop.ui.style import STYLESHEET
+    from scanlake_desktop.ui.theme import CrtOverlay, apply_theme
 
-    app.setStyleSheet(STYLESHEET)
+    apply_theme(app)
     replay = sorted(args.replay.glob("*.png")) if args.replay else None
     first_run = not paths.settings_file().exists()
     desktop = DesktopApp(load_settings(), dev=args.dev, replay=replay, first_run=first_run)
+    CrtOverlay(desktop.window)
 
     def show_existing() -> None:
         connection = server.nextPendingConnection()
