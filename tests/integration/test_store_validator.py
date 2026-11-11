@@ -2,7 +2,8 @@
 
 Runs the Store's `src/services/format.ts` with Node on files this app writes plus deliberately
 broken ones, and requires (a) the Store accepts our files and (b) both validators report the
-same violations. Skipped when Node or a Store checkout with `node_modules` is not around; point
+same violations. Skipped when Node or a Store checkout with `node_modules` is not around, or
+when that checkout predates the pinned format (it cannot parse a format with `positions`); point
 `SCANLAKE_STORE_REPO` at the checkout if it is not the sibling folder.
 """
 
@@ -37,7 +38,17 @@ def _store_available() -> bool:
     )
 
 
-pytestmark = pytest.mark.skipif(not _store_available(), reason="no Node or ScanLake Store checkout")
+def _store_knows_positions() -> bool:
+    source = STORE_REPO / "src" / "services" / "format.ts"
+    return source.exists() and "'positions'" in source.read_text(encoding="utf-8")
+
+
+pytestmark = [
+    pytest.mark.skipif(not _store_available(), reason="no Node or ScanLake Store checkout"),
+    pytest.mark.skipif(
+        not _store_knows_positions(), reason="the Store checkout predates positions"
+    ),
+]
 
 
 def _parquet(table: pa.Table) -> bytes:
@@ -76,18 +87,14 @@ def test_store_agrees(tmp_path: Path, fmt: ParquetFormat, profiles: dict[str, Hu
         assert store[path] == ours, path.name
         if not path.name.startswith(("int64", "missing", "extra")):
             assert ours == [], f"{path.name} would be rejected: {ours}"
-    assert store[tmp_path / "int64_mass.parquet"] == ['column "mass" is INT64, expected INT32']
+    assert store[tmp_path / "int64_mass.parquet"] == [
+        'column "mass" is INT64, expected INT32 or DOUBLE'
+    ]
 
 
 FORMAT_V3 = HERE.parent / "fixtures" / "format" / "format_v3.json"
 
 
-def _store_knows_positions() -> bool:
-    source = STORE_REPO / "src" / "services" / "format.ts"
-    return source.exists() and "'positions'" in source.read_text(encoding="utf-8")
-
-
-@pytest.mark.skipif(not _store_knows_positions(), reason="the Store checkout predates positions")
 def test_store_accepts_format_v3_with_positions(
     tmp_path: Path, fmt_v3: ParquetFormat, profiles: dict[str, HudProfile]
 ) -> None:

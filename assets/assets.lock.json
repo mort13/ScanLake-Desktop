@@ -5,8 +5,8 @@
     {
       "path": "format/format.json",
       "url": "https://gateway.scanlake.rocks/api/format",
-      "sha256": "3da231a2916db2f270c3aaca82bb1631c0f0e17598acf617dc66a211c1a136d9",
-      "size": 3307
+      "sha256": "bf52a389b6e42f23f98db19fdfe086b793fdfc7a8e9a9c081a59b2c4702e5561",
+      "size": 5025
     },
     {
       "path": "profiles/manifest.json",

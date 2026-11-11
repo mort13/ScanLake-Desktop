@@ -11,6 +11,14 @@ frame, and votes over several frames before you stage a scan.
   beside the scan panel (Settings → Capture; needs borderless window mode). That overlay is
   kept out of screen captures so it cannot disturb the reading, which also hides it from
   screenshots and streams.
+- **Ship positions**: with the game's debug info on (`r_DisplayInfo`), each scan also records
+  where the ship was. Positions stay on your computer unless you tick "Upload ship positions".
+- **Overview tab**: the session's clusters as cards. Click one to fly back to it: a ring over the
+  game shows a dot that sits in the middle when you face the cluster (needs one calibration
+  flight, Overview → Calibrate compass…).
+- **Shared sessions**: Share → Invite copies a link, the others paste it under Share → Join….
+  Everyone in the session sees each other's clusters, can mark them done or need help, and sees
+  who is on the way where (Crew tab). Each member still uploads their own scans.
 - **Dev mode** (`--dev` or Settings → Advanced): profile/ROI editor, labelers, training, export.
 
 ## Layout
@@ -57,6 +65,8 @@ FOLDER` to read saved frames instead of the screen).
 | Gateway (format, assets) | `https://gateway.scanlake.rocks` | `SCANLAKE_GATEWAY_URL` |
 | Auth (Discord login) | `https://auth.scanlake.rocks` | `SCANLAKE_AUTH_URL` |
 | Format | `{gateway}/api/format` | `SCANLAKE_FORMAT_URL` |
+| FrontDesk (session pings to the landing page) | `https://scanlake.rocks` | `SCANLAKE_FRONTDESK_URL` (empty: off) |
+| Crew (shared sessions) | `https://crew.scanlake.rocks` | `SCANLAKE_CREW_URL` (empty: off) |
 
 ## The upload format
 

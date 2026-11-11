@@ -4,7 +4,7 @@ import os
 import sys
 
 base = getattr(sys, "_MEIPASS", None)
-if base and hasattr(os, "add_dll_directory"):
+if base and sys.platform == "win32":  # os.add_dll_directory exists only there
     for sub in ("onnxruntime/capi", ""):
         path = os.path.join(base, sub)
         if os.path.isdir(path):

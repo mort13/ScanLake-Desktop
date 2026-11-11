@@ -65,12 +65,13 @@ def main(argv: list[str]) -> int:
         return 1
     size = sum(f.stat().st_size for f in exe.parent.rglob("*") if f.is_file())
     print(f"built {exe} ({size / 1e6:.0f} MB)")
+    # Inno Setup installs for all users (Program Files) or, as winget does, for this user only
+    roots = [
+        Path(os.environ.get("ProgramFiles(x86)", "")),
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs",
+    ]
     iscc = shutil.which("iscc") or next(
-        (
-            str(p)
-            for p in Path(os.environ.get("ProgramFiles(x86)", "")).glob("Inno Setup */ISCC.exe")
-        ),
-        None,
+        (str(p) for root in roots for p in root.glob("Inno Setup */ISCC.exe")), None
     )
     if iscc is None:
         print("Inno Setup not found: skipping the installer (https://jrsoftware.org/isinfo.php)")

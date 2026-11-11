@@ -11,11 +11,13 @@ from scanlake_core.format import FormatError, ParquetFormat, parse_format, valid
 from scanlake_core.format.format import ColumnSpec, FileSpec
 
 
-def test_live_v1_format_parses(fmt: ParquetFormat) -> None:
-    assert fmt.version >= 1
-    assert set(fmt.files) == {"scans", "compositions", "confidences"}
+def test_pinned_format_parses(fmt: ParquetFormat) -> None:
+    """The format the lock pins (and a build bundles): v3, with decimal masses and positions."""
+    assert fmt.version >= 3
+    assert set(fmt.files) == {"scans", "compositions", "confidences", "positions"}
     scans = fmt.files["scans"]
-    assert scans.column("mass") is not None and scans.column("mass").types == ("INT32",)  # type: ignore[union-attr]
+    assert scans.column("mass") is not None
+    assert scans.column("mass").types == ("INT32", "DOUBLE")  # type: ignore[union-attr]
     assert scans.column("deposit").type == "STRING"  # type: ignore[union-attr]
     assert not scans.allow_extra_columns
 
