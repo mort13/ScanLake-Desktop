@@ -1,11 +1,11 @@
 ; Inno Setup script: per-user installer for the ScanLake Desktop player build (no admin rights).
 ;   python packaging/build.py ort
-;   iscc /DAppVersion=0.1.0 packaging\installer\scanlake-desktop.iss
+;   iscc /DAppVersion=0.1.1 packaging\installer\scanlake-desktop.iss
 ; Output: dist\installer\ScanLake-Desktop-Setup-<version>.exe
 ; For the full build, add /DFlavor=full (installs from dist\full\ScanLake Desktop).
 
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef Flavor
   #define Flavor "ort"
