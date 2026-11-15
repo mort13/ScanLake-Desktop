@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from scanlake_core.domain.capture import Capture, Identity
 from scanlake_core.domain.navigation import (
+    GAME_CONVENTION,
     CalibrationResult,
     CameraFrames,
     ClusterSummary,
@@ -924,8 +925,15 @@ class DesktopApp(QObject):
     # -- navigation (Overview tab) --------------------------------------------
 
     @property
-    def convention(self) -> Convention | None:
-        return Convention.parse(self.settings.nav_camdir_convention)
+    def own_convention(self) -> Convention | None:
+        """A calibration flown here that the game's built-in one does not already match."""
+        own = Convention.parse(self.settings.nav_camdir_convention)
+        return None if own is None or own.same_rotation(GAME_CONVENTION) else own
+
+    @property
+    def convention(self) -> Convention:
+        """How CamDir builds the camera: the game's, built in, unless a calibration differs."""
+        return self.own_convention or GAME_CONVENTION
 
     def _fast_positions(self) -> bool:
         """Read the debug text often: a cluster is the target, or a calibration records."""
@@ -1016,9 +1024,8 @@ class DesktopApp(QObject):
             self.window.overview.update_position(position)
             if self.calibration is not None:
                 self.calibration.add(position, position_t)
-            convention = self.convention
-            if position is not None and convention is not None:
-                self.camera_frames.add(position, position_t, convention)
+            if position is not None:
+                self.camera_frames.add(position, position_t, self.convention)
         if self.nav is not None:
             if position_t < self.nav_position_t:  # older than one used: only age the fix
                 position, position_t = None, 0.0
@@ -1032,8 +1039,8 @@ class DesktopApp(QObject):
         self.nav_overlay.set_debug(on)
 
     def _show_compass_status(self) -> None:
-        conv = self.convention
-        self.window.overview.set_compass_status(conv is not None, str(conv) if conv else "")
+        own = self.own_convention
+        self.window.overview.set_compass_status(str(own) if own is not None else None)
 
     def open_calibration(self) -> None:
         if self.calibration is None:
@@ -1052,7 +1059,7 @@ class DesktopApp(QObject):
         self.settings.nav_camdir_convention = str(result.convention)
         save_settings(self.settings)
         if self.nav is not None:
-            self.nav.convention = result.convention
+            self.nav.convention = self.convention
         self._show_compass_status()
         self.worker.configure(self._worker_config())
 

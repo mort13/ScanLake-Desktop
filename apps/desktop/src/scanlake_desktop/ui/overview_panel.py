@@ -210,6 +210,10 @@ class OverviewPanel(QWidget):
         self.compass_status = QLabel()
         self.compass_status.setWordWrap(True)
         self.calibrate = QPushButton("Calibrate compass…")
+        self.calibrate.setToolTip(
+            "Not needed: the game's camera angles are built in. Fly a calibration only if the "
+            "dot keeps pointing the wrong way."
+        )
         self.calibrate.clicked.connect(self.calibrate_clicked.emit)
         self.stop = QPushButton("Stop")
         self.stop.setEnabled(False)
@@ -255,7 +259,7 @@ class OverviewPanel(QWidget):
         box.addWidget(nav)
 
         self.target_id: str | None = None
-        self.set_compass_status(False)
+        self.set_compass_status()
         self.show_clusters([])
 
     # -- clusters ---------------------------------------------------------------------------
@@ -412,9 +416,10 @@ class OverviewPanel(QWidget):
         note = "  (approximate: a planet turns in this frame)" if frame.approximate else ""
         self.frame.setText(frame.zone + note)
 
-    def set_compass_status(self, calibrated: bool, detail: str = "") -> None:
-        if calibrated:
-            text = "Compass calibrated" + (f": {detail}" if detail else "")
+    def set_compass_status(self, own: str | None = None) -> None:
+        """`own`: a calibration flown here that differs from the game's built-in one."""
+        if own is None:
+            text = "Compass ready: how the game's camera angles work is built in."
         else:
-            text = "Compass not calibrated: the in-game ring shows the distance only."
+            text = f"Compass uses your own calibration ({own}), not the built-in one."
         self.compass_status.setText(text)

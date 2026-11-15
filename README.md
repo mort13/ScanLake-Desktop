@@ -14,8 +14,8 @@ frame, and votes over several frames before you stage a scan.
 - **Ship positions**: with the game's debug info on (`r_DisplayInfo`), each scan also records
   where the ship was. Positions stay on your computer unless you tick "Upload ship positions".
 - **Overview tab**: the session's clusters as cards. Click one to fly back to it: a ring over the
-  game shows a dot that sits in the middle when you face the cluster (needs one calibration
-  flight, Overview → Calibrate compass…).
+  game shows a dot that sits in the middle when you face the cluster (how the game's camera
+  angles work is built in: no calibration needed).
 - **Shared sessions**: Share → Invite copies a link, the others paste it under Share → Join….
   Everyone in the session sees each other's clusters, can mark them done or need help, and sees
   who is on the way where (Crew tab). Each member still uploads their own scans.

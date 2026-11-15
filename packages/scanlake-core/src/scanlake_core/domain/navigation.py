@@ -437,6 +437,18 @@ class Convention:
             transpose=t == "T",
         )
 
+    def same_rotation(self, other: Convention) -> bool:
+        """Whether both build the same camera from every CamDir (many spellings do)."""
+        mine, theirs = _matrices(_PROBE_ANGLES, self), _matrices(_PROBE_ANGLES, other)
+        return bool(np.allclose(mine, theirs, atol=1e-9))
+
+
+# How the game builds the camera from its CamDir angles: the engine's Ang3 order,
+# Rz(z) · Ry(y) · Rx(x), angles as shown. Fitted from a calibration flight in Pyro on
+# 2026-11-08 (median 0.8° over 178 straight stretches; saved there as the same rotation
+# spelt xyz/012/---/T). It is the game's, the same for every player, so nobody has to calibrate.
+GAME_CONVENTION = Convention(axes=(0, 1, 2), order=(2, 1, 0), signs=(1, 1, 1))
+
 
 @cache
 def all_conventions() -> tuple[Convention, ...]:
@@ -448,6 +460,11 @@ def all_conventions() -> tuple[Convention, ...]:
         for signs in itertools.product((1, -1), repeat=3)
         for transpose in (False, True)
     )
+
+
+_PROBE_ANGLES = np.array(  # varied enough that different rotations never agree on all of them
+    [(0, 0, 0), (37, -21, 113), (-150, 64, -8), (90, 45, -90), (12, -88, 171)], dtype=float
+)
 
 
 def _rotations(axis: int, degrees: np.ndarray) -> np.ndarray:

@@ -20,6 +20,7 @@ from scanlake_core.domain.navigation import (
     CameraCheck,
     ClusterSummary,
     Compass,
+    Convention,
     NavFix,
     NavFrame,
     summarize_clusters,
@@ -494,17 +495,26 @@ def test_app_navigates_to_a_cluster(qtbot: Any, app_env: Path) -> None:
         assert overview.distance.text() == "1.00 km"
         app.on_live(_live(_in_field(1000, 300, 400, cam_dir=(0, 0, 0)), now + 0.15))
         assert overview.distance.text() == "500 m"
-        fix = app.nav_overlay.fix
-        assert fix is not None and fix.compass is None  # not calibrated yet
-        assert "not calibrated" in overview.compass_status.text()
-
-        app._calibrated(CalibrationResult(ENGINE, "Calibrated (median 1.0°)."))
-        assert app.settings.nav_camdir_convention == str(ENGINE)
-        assert "calibrated: xyz/210" in overview.compass_status.text().lower()
+        # The game's camera convention is built in: a compass without any calibration
+        assert app.settings.nav_camdir_convention == ""
+        assert overview.compass_status.text().startswith("Compass ready")
         app.on_live(_live(_in_field(1000, -500, 0, cam_dir=(0, 0, 0)), now + 0.25))
         fix = app.nav_overlay.fix
         assert fix is not None and fix.compass is not None
         assert fix.compass.off_angle == pytest.approx(0, abs=1e-6)  # +y, dead ahead
+
+        # A calibration flown here counts only where it differs from the built-in one
+        app._calibrated(CalibrationResult(Convention.parse("xyz/012/---/T"), "Calibrated."))
+        assert app.settings.nav_camdir_convention == "xyz/012/---/T"
+        assert app.own_convention is None and overview.compass_status.text().startswith(
+            "Compass ready"
+        )
+        odd = Convention((2, 0, 1), (0, 1, 2), (1, -1, 1), True)
+        app._calibrated(CalibrationResult(odd, "Calibrated."))
+        assert app.nav is not None and app.convention == odd and app.nav.convention == odd
+        assert "your own calibration (zxy/012/+-+/T)" in overview.compass_status.text()
+        app.settings.nav_camdir_convention = ""  # back to the built-in one
+        app._show_compass_status()
 
         assert not app.nav_overlay.debug and not app.settings.nav_debug
         overview.debug.setChecked(True)  # the readout, in the tab and in game; remembered

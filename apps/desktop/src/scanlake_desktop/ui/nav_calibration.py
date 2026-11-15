@@ -42,6 +42,8 @@ from scanlake_desktop import tasks
 from scanlake_desktop.ui.style import ERROR
 
 INSTRUCTIONS = (
+    "<b>Not needed normally</b>: how the game's camera angles work is built in. Fly this only "
+    "if the compass dot keeps pointing the wrong way.<br><br>"
     "<b>Before you start</b>: sit in the pilot seat, first-person view, no freelook, with the "
     "game's debug info on (r_DisplayInfo).<ol>"
     "<li>Fly straight ahead faster than 20 m/s for about 5 seconds.</li>"

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import math
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,6 +13,7 @@ import pytest
 from scanlake_core.domain import navigation as nav
 from scanlake_core.domain.capture import Capture, FieldValue
 from scanlake_core.domain.navigation import (
+    GAME_CONVENTION,
     HOLD_S,
     CalibrationSample,
     CameraCheck,
@@ -362,6 +365,33 @@ def test_tracker_compass_uses_the_frame_camdir_is_in() -> None:
         fix = tracker.update(position, t, now=t)
     assert fix.camera == CameraCheck(nav.SYSTEM, True)
     assert fix.compass is not None and fix.compass.off_angle == pytest.approx(0, abs=1e-6)
+
+
+def test_the_games_convention_is_built_in() -> None:
+    assert str(GAME_CONVENTION) == "xyz/210/+++/N" and GAME_CONVENTION == ENGINE
+    calibrated = Convention.parse("xyz/012/---/T")  # how the 2026-11-08 flight spelt it
+    assert calibrated is not None and calibrated.same_rotation(GAME_CONVENTION)
+    other = Convention((2, 0, 1), (0, 1, 2), (1, -1, 1), True)
+    assert not other.same_rotation(GAME_CONVENTION)
+
+
+def test_a_real_calibration_flight_fits_the_built_in_convention() -> None:
+    # The flight that settled it (Pyro, open space, 2026-11-08): straight legs and strafes
+    path = Path(__file__).parent / "fixtures" / "navigation" / "calibration-flight.csv"
+    with path.open(encoding="utf-8") as f:
+        samples = [
+            CalibrationSample(
+                float(row["t"]),
+                (float(row["cam_dir_x"]), float(row["cam_dir_y"]), float(row["cam_dir_z"])),
+                row["zone"],
+                (float(row["pos_x"]), float(row["pos_y"]), float(row["pos_z"])),
+            )
+            for row in csv.DictReader(f)
+        ]
+    result = fit_convention(samples)
+    assert result.convention is not None, result.message
+    assert result.convention.same_rotation(GAME_CONVENTION)
+    assert result.median_error is not None and result.median_error < 1.5
 
 
 def test_convention_round_trip() -> None:
