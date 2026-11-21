@@ -97,9 +97,11 @@ _POSITION_VALUES: dict[str, Callable[[ZonePosition, CamDir], Value]] = {
 
 
 def _position_rows(columns: Sequence[str], capture: Capture) -> list[dict[str, Value]]:
-    """One row per Zone line of the capture's position; none without a position."""
+    """One row per capture: its regional zone (asteroid field, planet, station), else the solar
+    system's. The other Zone lines (the ship's own frame, the system frames around a local
+    zone) stay in the app for navigation. None without a position."""
     position = capture.position
-    if position is None:
+    if position is None or (zone := position.regional_zone) is None:
         return []
     cam = position.cam_dir
     return [
@@ -108,7 +110,6 @@ def _position_rows(columns: Sequence[str], capture: Capture) -> list[dict[str, V
             else (_POSITION_VALUES[n](zone, cam) if n in _POSITION_VALUES else None)
             for n in columns
         }
-        for zone in position.zones
     ]  # fmt: skip
 
 

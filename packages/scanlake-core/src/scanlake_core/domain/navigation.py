@@ -34,27 +34,10 @@ from scanlake_core.domain.position import Position, ZonePosition, is_system_zone
 
 Vec = tuple[float, float, float]
 
-# The only zone inside the solar system this close to its origin is the vehicle's own frame
-# (the pilot sits ~10 m from the ship's origin); planets and asteroid fields are km across.
-VEHICLE_FRAME_M = 1000.0
-
 
 def nav_frames(position: Position) -> tuple[ZonePosition, ...]:
-    """The local zone and every zone outside it; the vehicle's own frame is never included.
-
-    With a ship in open space the innermost line (the ship) is also the only one inside the
-    solar system, so `local_zone` names it: it is dropped when it sits next to its origin.
-    """
-    zones = position.zones
-    local = position.local_zone
-    frames = zones[zones.index(local) :]
-    if (
-        not is_system_zone(local.zone)
-        and math.dist((local.x, local.y, local.z), (0.0, 0.0, 0.0)) < VEHICLE_FRAME_M
-        and sum(not is_system_zone(z.zone) for z in zones) == 1
-    ):
-        frames = frames[1:]
-    return frames
+    """The local zone and every zone outside it (`Position.frames`)."""
+    return position.frames
 
 
 # -- cluster summaries --------------------------------------------------------------------

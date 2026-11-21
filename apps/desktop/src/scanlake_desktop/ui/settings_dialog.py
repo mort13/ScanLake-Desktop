@@ -225,9 +225,10 @@ class SettingsDialog(QDialog):
         self.upload_positions.setChecked(s.upload_positions)
         positions_hint = QLabel(
             "With the game's debug info on (r_DisplayInfo), each scan also records where the"
-            " ship was: its CamDir and Zone lines. They are always kept on this computer and in"
-            " saved batches; tick this to also upload them. In a shared session the other"
-            " members see where your clusters are either way."
+            " ship was: its position in the asteroid field, planet or station it is in, else in"
+            " the solar system. It is always kept on this computer and in saved batches; tick"
+            " this to also upload it. In a shared session the other members see where your"
+            " clusters are either way."
         )
         positions_hint.setProperty("role", "hint")
         positions_hint.setWordWrap(True)

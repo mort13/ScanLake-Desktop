@@ -629,24 +629,65 @@ def test_positions_are_saved_and_kept_on_edit(
     assert edited.position == POSITION  # an edit never drops (or replaces) the position
 
 
+def _zones(*zones: tuple[str, float, float, float]) -> Position:
+    return Position(zones=tuple(ZonePosition(i, *z) for i, z in enumerate(zones)))
+
+
+SHIP_LINE = ("MISC_Prospector_915731471510", -0.01, 9.72, 0.41)
+SYSTEM_LINE = ("SolarSystem_906804011333", -14427194596.0, 7825291981.4, -14901088.1)
+ROOT_LINE = ("Root", -14427194596.0, 7825291981.4, -14901088.1)
+
+
+@pytest.mark.parametrize(
+    ("position", "regional"),
+    [
+        # in an asteroid field, at a planet, at a station: that zone
+        (_zones(SHIP_LINE, ("ab_mine_pyro_regionb_sml_001", -18874.3, -3354.15, 12639.6),
+                SYSTEM_LINE, ROOT_LINE), "ab_mine_pyro_regionb_sml_001"),
+        (_zones(("pyro3", -71975.2, 403989.2, -54153.1), SYSTEM_LINE, ROOT_LINE), "pyro3"),
+        (_zones(SHIP_LINE, ("social_001_keeger_segment_rckcrk_102", 3417.41, 41098.9, 14287.3),
+                SYSTEM_LINE), "social_001_keeger_segment_rckcrk_102"),
+        # in no zone (open space, a cluster outside any field): the solar system's
+        (_zones(SHIP_LINE, SYSTEM_LINE, ROOT_LINE), SYSTEM_LINE[0]),
+        (_zones(SHIP_LINE, ROOT_LINE), "Root"),  # the SolarSystem line was not read
+        (_zones(SYSTEM_LINE, ROOT_LINE), SYSTEM_LINE[0]),
+        (_zones(SHIP_LINE), None),  # only the ship's own frame: nothing to place the scan by
+    ],
+)  # fmt: skip
+def test_regional_zone(position: Position, regional: str | None) -> None:
+    found = position.regional_zone
+    assert (found.zone if found else None) == regional
+
+
 def test_positions_file(fmt_v3: ParquetFormat, profiles: dict[str, HudProfile]) -> None:
     cov = coverage(fmt_v3, slot_layout(profiles["mole"]))
     assert cov.complete  # the app fills every positions column itself
-    with_position = replace(_capture(), position=POSITION)
+    in_open_space = replace(_capture(), position=POSITION)
+    in_field = replace(
+        _capture(),
+        capture_id="c-3",
+        position=_zones(SHIP_LINE, ("ab_mine_x", 1.0, 2.0, 3.0), SYSTEM_LINE, ROOT_LINE),
+    )
+    captures = [in_open_space, replace(_capture(), capture_id="c-2"), in_field]
     files = {
         f.kind: f
-        for f in build_batch(fmt_v3, cov, [with_position, replace(_capture(), capture_id="c-2")],
-                             IDENTITY, ROW_COLUMNS, session_id="s-1", batch_number=1)
+        for f in build_batch(fmt_v3, cov, captures, IDENTITY, ROW_COLUMNS, session_id="s-1",
+                             batch_number=1)
     }  # fmt: skip
     assert files["positions"].filename == "u-1_positions_s-1_batch1.parquet"
     table = pq.read_table(io.BytesIO(files["positions"].data))
-    assert table.num_rows == 2  # one per Zone line, none for the capture without a position
+    # one row per scan with a position: the regional zone, else the solar system's
     rows = table.to_pylist()
-    assert rows[1] == {
+    assert rows[0] == {
         "capture_id": "c-1", "zone_index": 2, "zone": "Root", "pos_x": -14427194596.0,
         "pos_y": 7825291981.4, "pos_z": -14901088.1, "cam_dir_x": -155.0, "cam_dir_y": 45.0,
         "cam_dir_z": -179.0, "confidence": 0.91,
     }  # fmt: skip
+    assert rows[1] == {
+        "capture_id": "c-3", "zone_index": 1, "zone": "ab_mine_x", "pos_x": 1.0, "pos_y": 2.0,
+        "pos_z": 3.0, "cam_dir_x": None, "cam_dir_y": None, "cam_dir_z": None, "confidence": 1.0,
+    }  # fmt: skip
+    assert len(rows) == 2
     assert str(table.schema.field("zone_index").type) == "int32"
 
     plain = build_batch(fmt_v3, cov, [_capture()], IDENTITY, ROW_COLUMNS, session_id="s-1",

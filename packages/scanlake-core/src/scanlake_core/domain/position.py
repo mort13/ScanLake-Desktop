@@ -38,6 +38,10 @@ _METRES = {"m": 1.0, "km": 1000.0}
 # cluster, planet, station) that places a scan on a map.
 _SYSTEM_ZONES = ("SolarSystem", "Root")
 
+# The only zone inside the solar system this close to its origin is the vehicle's own frame
+# (the pilot sits ~10 m from the ship's origin); planets and asteroid fields are km across.
+VEHICLE_FRAME_M = 1000.0
+
 
 def is_system_zone(zone: str) -> bool:
     """A zone spanning the whole system (`SolarSystem_…`, `Root`)."""
@@ -80,6 +84,31 @@ class Position:
                 break
             local = zone
         return local
+
+    @property
+    def frames(self) -> tuple[ZonePosition, ...]:
+        """The local zone and every zone outside it; the vehicle's own frame is never included.
+
+        With a ship in open space the innermost line (the ship) is also the only one inside the
+        solar system, so `local_zone` names it: it is dropped when it sits next to its origin.
+        """
+        local = self.local_zone
+        frames = self.zones[self.zones.index(local) :]
+        if (
+            not is_system_zone(local.zone)
+            and math.dist((local.x, local.y, local.z), (0.0, 0.0, 0.0)) < VEHICLE_FRAME_M
+            and sum(not is_system_zone(z.zone) for z in self.zones) == 1
+        ):
+            frames = frames[1:]
+        return frames
+
+    @property
+    def regional_zone(self) -> ZonePosition | None:
+        """The one zone that places the scan on a map: the local zone (asteroid field, planet,
+        station), else the solar system's (`SolarSystem_…`, else `Root`) when the ship is in
+        none; None when only the vehicle's own frame was read."""
+        frames = self.frames
+        return frames[0] if frames else None
 
     def summary(self) -> str:
         local = self.local_zone
