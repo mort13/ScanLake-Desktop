@@ -56,7 +56,8 @@ def available_backends(models: Path | None = None) -> list[BackendInfo]:
         return infos
     files = ModelFiles(models) if models is not None else None
     if files is not None and not all(
-        (files.directory / f"{name}.safetensors").exists() for name in (files.digit, files.word)
+        (files.directory / f"{name}.safetensors").exists()
+        for name in (files.digit, files.names_model)
     ):
         reason = "no PyTorch weights (run: scanlake-train checkpoint convert)"
         infos += [BackendInfo(i, LABELS[i], False, reason) for i in ("torch-cpu", "torch-cuda")]

@@ -67,6 +67,19 @@ def _synth(args: argparse.Namespace) -> int:
             Path(args.out), args.per_format, args.seed, framed=framed, real=real, real_dir=real_dir
         )
         print(f"wrote {n} strips to {args.out}")
+    elif args.what == "names":
+        from scanlake_training import names
+
+        if not args.glyphs:
+            raise SystemExit("names need --glyphs (letter glyph folders)")
+        sets = []
+        for item in args.glyphs:
+            folder, _, weight = item.partition("=")
+            sets.append((names.load_glyphs(Path(folder)), float(weight or 1)))
+        folders = [Path(b) for b in args.backgrounds or [synth.resource_dir() / "backgrounds"]]
+        n = names.generate_names(Path(args.out), args.count, sets, names.load_backgrounds(folders),
+                                 args.seed)  # fmt: skip
+        print(f"wrote {n} name strips to {args.out}")
     else:
         counts = synth.generate_words(Path(args.out), args.per_class, args.seed)
         print(f"wrote {sum(counts.values())} images in {len(counts)} classes to {args.out}")
@@ -75,14 +88,19 @@ def _synth(args: argparse.Namespace) -> int:
 
 def _train(args: argparse.Namespace) -> int:
     from scanlake_training import data
+    from scanlake_training.names import NameTask, name_samples
     from scanlake_training.tasks import CrnnTask, WordTask
     from scanlake_training.trainer import TrainConfig, train
 
     folders = [Path(d) for d in args.data]
     folder = folders[0]
-    if args.task == "crnn":
+    if args.task == "names":
+        samples = [s for f in folders for s in name_samples(f)]
+        task: Any = NameTask()
+        name = "name_crnn"
+    elif args.task == "crnn":
         samples = [s for f in folders for s in data.strip_samples(f)]
-        task: Any = CrnnTask()
+        task = CrnnTask()
         name = "digit_crnn"
     else:
         if len(folders) > 1:
@@ -95,21 +113,25 @@ def _train(args: argparse.Namespace) -> int:
         name = "word_model"
     if args.val_data:
         train_samples = samples
-        val_samples = (
-            data.strip_samples(Path(args.val_data))
-            if args.task == "crnn"
-            else data.word_samples(Path(args.val_data), task.classes)
-        )
+        if args.task == "names":
+            val_samples = name_samples(Path(args.val_data))
+        elif args.task == "crnn":
+            val_samples = data.strip_samples(Path(args.val_data))
+        else:
+            val_samples = data.word_samples(Path(args.val_data), task.classes)
     else:
         train_samples, val_samples = data.split(samples, args.val_fraction)
     if not train_samples or not val_samples:
         raise SystemExit(f"not enough samples in {folder} ({len(samples)} found)")
 
     # Small folders are repeated so an epoch still has a useful number of updates
-    oversample = max(1, (400 if args.task == "crnn" else 200) // len(train_samples))
-    if args.task == "crnn":
-        train_set: Any = data.StripDataset(train_samples, augment=True, oversample=oversample)
-        val_set: Any = data.StripDataset(val_samples)
+    oversample = max(1, (200 if args.task == "word" else 400) // len(train_samples))
+    if args.task in ("crnn", "names"):
+        alphabet = task.alphabet
+        train_set: Any = data.StripDataset(
+            train_samples, augment=True, oversample=oversample, alphabet=alphabet
+        )
+        val_set: Any = data.StripDataset(val_samples, alphabet=alphabet)
     else:
         train_set = data.WordDataset(
             train_samples, task.classes, augment=True, oversample=oversample
@@ -213,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="group", required=True)
 
     s = sub.add_parser("synth", help="generate synthetic training data")
-    s.add_argument("what", choices=["strips", "words"])
+    s.add_argument("what", choices=["strips", "words", "names"])
     s.add_argument("out")
     s.add_argument("--per-format", type=int, default=300, help="strips per format")
     s.add_argument(
@@ -226,11 +248,19 @@ def main(argv: list[str] | None = None) -> int:
     )  # fmt: skip
     s.add_argument("--real-glyphs", help="folder of real glyph cuts (default: glyphs/real/)")
     s.add_argument("--per-class", type=int, default=200, help="word images per class")
+    s.add_argument("--count", type=int, default=20000, help="name strips")
+    s.add_argument(
+        "--glyphs", nargs="+",
+        help="names: letter glyph folders, DIR or DIR=WEIGHT (default weight 1)",
+    )  # fmt: skip
+    s.add_argument(
+        "--backgrounds", nargs="+", help="names: background image folders (default: resources)"
+    )
     s.add_argument("--seed", type=int)
     s.set_defaults(run=_synth)
 
     t = sub.add_parser("train", help="train a model")
-    t.add_argument("task", choices=["crnn", "word"])
+    t.add_argument("task", choices=["crnn", "word", "names"])
     t.add_argument("--data", required=True, nargs="+", help="training folder(s)")
     t.add_argument(
         "--init",

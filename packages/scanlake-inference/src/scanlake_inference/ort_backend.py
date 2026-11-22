@@ -8,7 +8,8 @@ import numpy as np
 import onnxruntime as ort
 
 from scanlake_core.decode import Floats
-from scanlake_inference.metadata import ModelFiles, load_digit_meta, load_word_meta
+from scanlake_core.names import NameScorer, lexicon
+from scanlake_inference.metadata import ModelFiles, load_digit_meta, load_name_meta, load_word_meta
 
 Provider = Literal["cpu", "dml"]
 DML = "DmlExecutionProvider"
@@ -20,16 +21,29 @@ def dml_available() -> bool:
 
 
 class OrtEngine:
-    """Runs the digit CRNN and the word CNN on batches of [N, 1, 32, 256] inputs."""
+    """Runs the digit CRNN and the name model on batches of [N, 1, 32, 256] inputs.
+
+    The name model is the letter CRNN (`name_crnn`, read and matched against the known names)
+    where the folder has one, else the word CNN; `words` returns [N, K] scores either way."""
 
     def __init__(
         self, files: ModelFiles, provider: Provider = "cpu", device_id: int = 0, threads: int = 2
     ) -> None:
         self.provider = provider
         self._digit_meta = load_digit_meta(files.meta(files.digit))
-        self._word_meta = load_word_meta(files.meta(files.word))
         self._digit = self._session(str(files.onnx(files.digit)), provider, device_id, threads)
-        self._word = self._session(str(files.onnx(files.word)), provider, device_id, threads)
+        self._names: NameScorer | None = None
+        if files.reads_names:
+            meta = load_name_meta(files.meta(files.name))
+            self._names = NameScorer(lexicon(), meta.char_classes, meta.blank_index)
+            self._word_classes = self._names.lexicon.classes
+            self._word_preprocess = meta.preprocess
+        else:
+            word_meta = load_word_meta(files.meta(files.word))
+            self._word_classes = word_meta.word_classes
+            self._word_preprocess = word_meta.preprocess
+        model = files.names_model
+        self._word = self._session(str(files.onnx(model)), provider, device_id, threads)
 
     @staticmethod
     def _session(
@@ -67,7 +81,7 @@ class OrtEngine:
 
     @property
     def word_classes(self) -> tuple[str, ...]:
-        return self._word_meta.word_classes
+        return self._word_classes
 
     @property
     def digit_preprocess(self) -> str:
@@ -75,7 +89,7 @@ class OrtEngine:
 
     @property
     def word_preprocess(self) -> str:
-        return self._word_meta.preprocess
+        return self._word_preprocess
 
     def digits(self, batch: Floats) -> Floats:
         (out,) = self._digit.run(None, {self._digit.get_inputs()[0].name: _contiguous(batch)})
@@ -83,7 +97,8 @@ class OrtEngine:
 
     def words(self, batch: Floats) -> Floats:
         (out,) = self._word.run(None, {self._word.get_inputs()[0].name: _contiguous(batch)})
-        return np.asarray(out, dtype=np.float32)
+        out = np.asarray(out, dtype=np.float32)
+        return self._names.scores(out) if self._names is not None else out
 
 
 def _contiguous(batch: Floats) -> Floats:

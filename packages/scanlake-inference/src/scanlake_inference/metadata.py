@@ -1,4 +1,8 @@
-"""Model metadata: the `<model>.json` next to each `.onnx` (shared with the web app)."""
+"""Model metadata: the `<model>.json` next to each `.onnx` (shared with the web app).
+
+Names (deposit, materials) are read by the letter model `name_crnn` where a models folder has
+one, else by the word classifier `word_model2k` (scanlake_core/names.py).
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ from scanlake_core.preprocess import LEGACY_PREPROCESS, preprocess_of
 
 DIGIT_MODEL = "digit_crnn"
 WORD_MODEL = "word_model2k"
+NAME_MODEL = "name_crnn"
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,22 @@ def load_digit_meta(path: Path) -> DigitMeta:
     )
 
 
+@dataclass(frozen=True)
+class NameMeta:
+    char_classes: str
+    blank_index: int
+    preprocess: str
+
+
+def load_name_meta(path: Path) -> NameMeta:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return NameMeta(
+        char_classes=raw["charClasses"],
+        blank_index=int(raw.get("blankIdx", 0)),
+        preprocess=preprocess_of(raw),
+    )
+
+
 def load_word_meta(path: Path) -> WordMeta:
     raw = json.loads(path.read_text(encoding="utf-8"))
     return WordMeta(word_classes=tuple(raw["wordClasses"]), preprocess=preprocess_of(raw))
@@ -48,6 +69,17 @@ class ModelFiles:
     directory: Path
     digit: str = DIGIT_MODEL
     word: str = WORD_MODEL
+    name: str = NAME_MODEL
+
+    @property
+    def reads_names(self) -> bool:
+        """Whether names go to the letter model (its metadata is in the folder)."""
+        return self.meta(self.name).exists()
+
+    @property
+    def names_model(self) -> str:
+        """The model that reads deposit/material names: the letter model or the word classifier."""
+        return self.name if self.reads_names else self.word
 
     def onnx(self, name: str) -> Path:
         return self.directory / f"{name}.onnx"

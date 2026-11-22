@@ -14,6 +14,7 @@ from scanlake_core.profile.model import HudProfile
 from scanlake_core.vision.anchors import load_template
 
 MODEL_NAMES = ("digit_crnn", "word_model2k")
+NAME_MODEL = "name_crnn"  # reads names instead of word_model2k where a models folder has it
 
 
 def _sha256(path: Path) -> str:
@@ -69,11 +70,17 @@ class AssetSet:
                 return user
         return self.root / "models"
 
+    def models_in_use(self) -> tuple[str, ...]:
+        """The digit model and the model that reads names (see scanlake_inference.metadata)."""
+        if (self.models_dir / f"{NAME_MODEL}.json").exists():
+            return (MODEL_NAMES[0], NAME_MODEL)
+        return MODEL_NAMES
+
     def model_stamp(self) -> str:
         """Changes when the model files change (so capture reloads its engine)."""
         d = self.models_dir
         return f"{d}:" + ",".join(
-            str(int((d / f"{n}.onnx.data").stat().st_mtime_ns)) for n in MODEL_NAMES
+            str(int((d / f"{n}.onnx.data").stat().st_mtime_ns)) for n in self.models_in_use()
         )
 
     @property
@@ -101,13 +108,14 @@ class AssetSet:
 
     def model_versions(self) -> str:
         """Which model files read a capture (stored with it): name@sha256-prefix of the weights."""
+        names = self.models_in_use()
         if self.models_dir != self.root / "models":
             return ",".join(
-                f"{n}@{_sha256(self.models_dir / f'{n}.onnx.data')[:12]}" for n in MODEL_NAMES
+                f"{n}@{_sha256(self.models_dir / f'{n}.onnx.data')[:12]}" for n in names
             )
         try:
             lock = json.loads((self.root / "assets.lock.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return ""
         hashes = {a["path"]: a.get("sha256", "") for a in lock.get("assets", [])}
-        return ",".join(f"{n}@{hashes.get(f'models/{n}.onnx.data', '')[:12]}" for n in MODEL_NAMES)
+        return ",".join(f"{n}@{hashes.get(f'models/{n}.onnx.data', '')[:12]}" for n in names)
