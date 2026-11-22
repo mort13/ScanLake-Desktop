@@ -125,10 +125,8 @@ def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfil
         scan, _ = form.values()
         if scan["deposit"].text == "":
             form._scan_widgets["deposit"].setCurrentText("Quartz")  # type: ignore[union-attr]
-        mass = int(scan["mass"].text or 0)
-        volume = float(scan["volume"].text or 0)
-        if not mass or mass < 100 * volume:
-            form._scan_widgets["mass"].setText(str(int(100 * volume) + 1000))  # type: ignore[union-attr]
+        if not scan["mass"].text:
+            form._scan_widgets["mass"].setText("11826")  # type: ignore[union-attr]
         for column in ("resistance", "instability", "volume"):
             if not scan[column].text:
                 form._scan_widgets[column].setText("1")  # type: ignore[union-attr]

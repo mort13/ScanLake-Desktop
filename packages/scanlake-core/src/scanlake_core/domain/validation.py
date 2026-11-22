@@ -1,6 +1,6 @@
 """Checks a capture before it is saved (port of ScanLake Capture's `ScanForm.tsx` validate).
 
-Rules about specific columns (amount sum, mass vs volume, ...) only run when the profile
+Rules about specific columns (amount sum, decimal mass, ...) only run when the profile
 fills those columns, so a format with other data still validates.
 """
 
@@ -15,7 +15,6 @@ from scanlake_core.schema_map import COMPOSITIONS, SCANS
 
 AMOUNT_TARGET = 100.0
 AMOUNT_TOLERANCE_PER_ROW = 0.009
-MASS_PER_VOLUME = 100
 MAX_QUALITY = 1000
 
 
@@ -93,16 +92,9 @@ def validate(
                     )
                 )
 
+    # No mass >= 100x volume rule (gone from the web form too): deposits under 1 SCU show volume
+    # in mSCU, which fields.py converts, and a decimal mass is only allowed below 1 SCU
     mass, volume = _number(capture.value("mass")), _number(capture.value("volume"))
-    if mass and volume and mass < MASS_PER_VOLUME * volume:
-        issues.append(
-            Issue(
-                f"Mass ({mass:g}) must be at least {MASS_PER_VOLUME}× volume ({volume:g})"
-                f" = {MASS_PER_VOLUME * volume:.1f}",
-                SCANS,
-                "mass",
-            )
-        )
     if "." in capture.value("mass") and volume >= 1:
         issues.append(
             Issue(

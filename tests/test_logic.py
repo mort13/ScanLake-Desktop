@@ -178,10 +178,10 @@ def test_amount_sum_and_incomplete_rows() -> None:
     assert any("sum to 58.40%" in m for m in msgs)
 
 
-def test_mass_volume_and_cluster_deposit() -> None:
+def test_cluster_deposit_and_no_mass_per_volume_rule() -> None:
     capture = _capture([("Quartz", "100.00", "1")], mass="100", volume="2.00")
     msgs = _messages(capture, cluster_deposit="Iron")
-    assert any("at least 100× volume" in m for m in msgs)
+    assert not any("volume" in m for m in msgs)  # mass under 100x volume is no longer refused
     assert any('Cluster deposit must be "Iron"' in m for m in msgs)
 
 
