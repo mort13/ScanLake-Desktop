@@ -11,8 +11,8 @@
     {
       "path": "profiles/manifest.json",
       "url": "https://capture.scanlake.rocks/profiles/manifest.json",
-      "sha256": "a32f5e400c745afdce3b292486213e3acae6aaed8347481e0bd97abca0e0931b",
-      "size": 265
+      "sha256": "f128401d032bfb71e87422e43913ffc09847a9d260b2da1877ebf4e1544348e5",
+      "size": 346
     },
     {
       "path": "profiles/mole_relative_anchors_crnn.json",
@@ -29,8 +29,14 @@
     {
       "path": "profiles/prospector_relative_anchors_crnn.json",
       "url": "https://capture.scanlake.rocks/profiles/prospector_relative_anchors_crnn.json",
-      "sha256": "b1a0843083978c03fc9241d0f65b94034f2a69bd83bae5efbb71f1c074e32e85",
-      "size": 19864
+      "sha256": "5ff126ea277c4968a174589d7e5012533796548d6dab4a43a5a6c82acd7f82b0",
+      "size": 20075
+    },
+    {
+      "path": "profiles/hyun_relative_anchors_crnn.json",
+      "url": "https://capture.scanlake.rocks/profiles/hyun_relative_anchors_crnn.json",
+      "sha256": "d8e9e793cfa1c00b7fe1bcbb8d19258ffa6577f133d2b6fa80b80531f533f321",
+      "size": 20049
     },
     {
       "path": "anchors/scan.png",
@@ -85,6 +91,54 @@
       "url": "https://capture.scanlake.rocks/anchors/prospector_auto.jpg",
       "sha256": "e9b5bd7529ab894799e3b96f9ac95f3291c9b641ee5d7301faa67976702e5815",
       "size": 5398
+    },
+    {
+      "path": "anchors/prospector2_scan.png",
+      "url": "https://capture.scanlake.rocks/anchors/prospector2_scan.png",
+      "sha256": "e6a71cab9e37527b9eb0b71e69b0d3d89d37969415e38185da394e3463bb3ce4",
+      "size": 7461
+    },
+    {
+      "path": "anchors/prospector2_composition.png",
+      "url": "https://capture.scanlake.rocks/anchors/prospector2_composition.png",
+      "sha256": "772e3929d384aebd7ba3c7af5707b695f381a02fa968253031feaf39a0e8b504",
+      "size": 6888
+    },
+    {
+      "path": "anchors/prospector2_auto.png",
+      "url": "https://capture.scanlake.rocks/anchors/prospector2_auto.png",
+      "sha256": "15e39fc501df7fb5bb898a514e37e800df21dd22a560dc61c680da5db666f477",
+      "size": 2456
+    },
+    {
+      "path": "anchors/prospector2_cargo.png",
+      "url": "https://capture.scanlake.rocks/anchors/prospector2_cargo.png",
+      "sha256": "2a21fd5fd8b312f6c57e1a7ac0648fc671c1cea75332c9699a96b22d8d654d62",
+      "size": 4315
+    },
+    {
+      "path": "anchors/hyun_scan.png",
+      "url": "https://capture.scanlake.rocks/anchors/hyun_scan.png",
+      "sha256": "c9138e237b02951fc2da8cec7c30f9c9c4215714ef51f9b942c221b049c559af",
+      "size": 4358
+    },
+    {
+      "path": "anchors/hyun_composition.png",
+      "url": "https://capture.scanlake.rocks/anchors/hyun_composition.png",
+      "sha256": "7bfb97557a6c63ccb56b433ac146bcdcd2821376b734ceadea80e43d47393c10",
+      "size": 4152
+    },
+    {
+      "path": "anchors/hyun_cargo.png",
+      "url": "https://capture.scanlake.rocks/anchors/hyun_cargo.png",
+      "sha256": "765007293c87cb43cfb92c70a5411133216c84e56714f4941252613d249fd7f0",
+      "size": 3002
+    },
+    {
+      "path": "anchors/hyun_auto.png",
+      "url": "https://capture.scanlake.rocks/anchors/hyun_auto.png",
+      "sha256": "9097bf82ad2d571eaf8ca48264dc76b5ea8e12205be37288706ca2de2f833cfe",
+      "size": 2169
     },
     {
       "path": "models/digit_crnn.json",
