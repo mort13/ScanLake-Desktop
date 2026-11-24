@@ -15,10 +15,11 @@ import numpy as np
 import pytest
 
 from scanlake_core.decode import Floats, ctc_greedy, softmax
+from scanlake_core.domain.deposit_materials import allowed_materials, pick_material
 from scanlake_core.fields import field_spec
 from scanlake_core.preprocess import STRIP_V1, STRIP_V2, preprocess_strip, to_input
 from scanlake_core.profile.model import HudProfile
-from scanlake_core.recognition import FrameRecognizer
+from scanlake_core.recognition import DEPOSIT_CONFIDENT, FrameRecognizer
 from scanlake_core.schema_map import field_slots
 from scanlake_core.vision.anchors import load_templates
 from scanlake_core.vision.filters import apply_filters
@@ -110,7 +111,9 @@ def test_recognizer_end_to_end(engine: OrtEngine, profiles: dict[str, HudProfile
         frame[y : y + t.shape[0], x : x + t.shape[1]] = cv2.cvtColor(t, cv2.COLOR_GRAY2BGR)
 
     columns = {s.roi: s.column for s in field_slots(hud)}
-    words = ["quartz", "iron", "gold", "inert_materials", "copper", "laranite"]
+    # A Bexalite rock: popped in ROI order material1-3, deposit, material4-5. Every material is
+    # one the deposit can hold, so deposit_materials.json never overrides the model's own pick.
+    words = ["inert_materials", "borase", "bexalite", "gold", "bexalite", "bexalite"]
     for roi in capture.rois:
         if roi.recognition_mode == "word_cnn":
             image = _pick_word(engine, words.pop(), rng)
@@ -125,7 +128,14 @@ def test_recognizer_end_to_end(engine: OrtEngine, profiles: dict[str, HudProfile
     assert result.locked and result.fix.scale == pytest.approx(1.0, rel=0.01)
     assert set(result.readings) == {r.name for r in capture.rois}
 
-    # Each reading equals that ROI's crop run through the model on its own
+    # Each reading equals that ROI's crop run through the model on its own; material slots then
+    # read the best class the (confidently read) Bexalite deposit can hold
+    assert result.readings["deposit"].text == "Bexalite"
+    assert result.readings["deposit"].confidence >= DEPOSIT_CONFIDENT
+    bexalite = allowed_materials("Bexalite")
+    assert bexalite is not None
+    type_spec = field_spec("type")
+    materials = [type_spec.normalize(c) or "" for c in engine.word_classes]
     blanks = 0
     for roi in capture.rois:
         reading = result.readings[roi.name]
@@ -144,6 +154,9 @@ def test_recognizer_end_to_end(engine: OrtEngine, profiles: dict[str, HudProfile
         elif roi.recognition_mode == "word_cnn":
             p = softmax(engine.words(to_input([canvas])))[0]
             expected = spec.normalize(engine.word_classes[int(p.argmax())])
+            if spec.column == "type":
+                expected = materials[pick_material(p, materials, bexalite)[0]]
+                assert reading.raw_text == engine.word_classes[int(p.argmax())]
         else:
             [r] = ctc_greedy(engine.digits(to_input([canvas])), engine.digit_classes)
             expected = spec.normalize(r.text) if r.text else None

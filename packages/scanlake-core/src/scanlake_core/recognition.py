@@ -1,7 +1,8 @@
 """One frame in, one reading per ROI out.
 
 anchors -> transform -> ROI crops -> filters (digit ROIs only) -> 32x256 inputs -> one batched
-model run per model -> decode -> per-column validation.
+model run per model -> decode -> per-column validation -> material slots narrowed to what the
+frame's deposit can contain (domain/deposit_materials.py).
 
 The models sit behind the `Engine` protocol (implemented in scanlake-inference), so this module
 needs neither ONNX Runtime nor PyTorch. A ROI whose model input is unchanged since the last frame
@@ -19,6 +20,7 @@ from typing import Protocol
 import numpy as np
 
 from scanlake_core.decode import Floats, ctc_greedy, softmax
+from scanlake_core.domain.deposit_materials import pick_deposit, pick_material, row_materials
 from scanlake_core.fields import FieldSpec, field_spec
 from scanlake_core.geometry import Rect, apply
 from scanlake_core.preprocess import Gray, preprocess_strip, to_gray, to_input
@@ -27,6 +29,9 @@ from scanlake_core.schema_map import field_slots
 from scanlake_core.vision.anchors import AnchorFix, AnchorLocator
 from scanlake_core.vision.filters import apply_filters
 from scanlake_core.vision.roi import crop, place_rois
+
+# A deposit read with at least this word probability narrows its material slots
+DEPOSIT_CONFIDENT = 0.75
 
 
 class Engine(Protocol):
@@ -99,10 +104,14 @@ class FrameRecognizer:
     _locator: AnchorLocator = field(init=False)
     _specs: dict[str, FieldSpec] = field(init=False)
     _cache: dict[str, tuple[bytes, RoiReading]] = field(default_factory=dict, init=False)
+    _names: dict[str, tuple[str, ...]] = field(default_factory=dict, init=False)
+    _rows: dict[str, int] = field(init=False)  # material ROI -> composition row (0 = top)
 
     def __post_init__(self) -> None:
         self._locator = AnchorLocator(self.capture.anchors, self.templates)
-        columns = {slot.roi: slot.column for slot in field_slots(self.hud)}
+        slots = field_slots(self.hud)
+        columns = {slot.roi: slot.column for slot in slots}
+        self._rows = {s.roi: s.row for s in slots if s.column == "type" and s.row is not None}
         self._specs = {
             roi.name: field_spec(columns.get(roi.name, roi.name), recognition=roi.recognition_mode)
             for roi in self.capture.rois
@@ -157,6 +166,7 @@ class FrameRecognizer:
 
         self._run_digits(pending[DIGIT_CRNN], readings)
         self._run_words(pending[WORD_CNN], readings)
+        self._apply_deposit(readings)
         t3 = time.perf_counter()
         inferred = len(pending[DIGIT_CRNN]) + len(pending[WORD_CNN])
         timings = {"anchors": t1 - t0, "rois": t2 - t1, "inference": t3 - t2}
@@ -209,6 +219,45 @@ class FrameRecognizer:
             )  # fmt: skip
             out[item.name] = reading
             self._cache[item.name] = (item.key, reading)
+
+    def _apply_deposit(self, readings: dict[str, RoiReading]) -> None:
+        """Reads deposit and materials together (domain/deposit_materials.py).
+
+        The material slots settle an unsure deposit read; then a confident deposit narrows each
+        material slot to what it can show in that row. Cached readings keep the model's own pick
+        (and `raw_text` always does), so each frame decides afresh.
+        """
+        name = next((n for n in readings if self._specs[n].column == "deposit"), None)
+        deposit = readings[name] if name is not None else None
+        if name is None or deposit is None or deposit.probs is None:
+            return
+        slots: dict[str, Floats] = {
+            n: r.probs
+            for n, r in readings.items()
+            if self._specs[n].column == "type" and r.probs is not None
+        }
+        materials = self._class_names(field_spec("type", recognition=WORD_CNN))
+        deposits = self._class_names(self._specs[name])
+        rows = {self._rows[n]: probs for n, probs in slots.items() if n in self._rows}
+        best, confidence = pick_deposit(deposit.probs, deposits, rows, materials)
+        deposit = replace(deposit, text=deposits[best], confidence=confidence)
+        readings[name] = deposit
+        if not deposit.text or deposit.confidence < DEPOSIT_CONFIDENT:
+            return
+        for n, probs in slots.items():
+            allowed = row_materials(deposit.text, self._rows.get(n, 0))
+            if allowed is None:
+                continue
+            best, confidence = pick_material(probs, materials, allowed)
+            readings[n] = replace(readings[n], text=materials[best], confidence=confidence)
+
+    def _class_names(self, spec: FieldSpec) -> tuple[str, ...]:
+        """Each word class as `spec` normalizes it ("" for the blank material class)."""
+        names = self._names.get(spec.column)
+        if names is None:
+            names = tuple(spec.normalize(c) or "" for c in self.engine.word_classes)
+            self._names[spec.column] = names
+        return names
 
     def _images(self, item: _Pending) -> dict[str, np.ndarray | None]:
         if not self.keep_images:
