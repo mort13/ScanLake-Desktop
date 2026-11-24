@@ -52,14 +52,14 @@ def test_shipped_torch_weights_match_the_onnx_files() -> None:
     assert (pt.digits(BATCH).argmax(2) == ort.digits(BATCH).argmax(2)).all()
 
 
-def test_legacy_conversion(legacy: Path) -> None:
+def test_legacy_conversion(legacy: Path, word_models: Path) -> None:
     _, words = checkpoint.load(legacy / "word_model2k")
     assert words["wordClasses"][10] == "empty" and words["numClasses"] == 31
     _, digits = checkpoint.load(legacy / "digit_crnn")
     assert digits["charClasses"] == LEGACY_CHAR_CLASSES and digits["numClasses"] == 13
     # The word model never changed: the old checkpoint is still the shipped ONNX file
     pt = TorchEngine(ModelFiles(legacy), "cpu")
-    ort = OrtEngine(ModelFiles(SHIPPED), "cpu")
+    ort = OrtEngine(ModelFiles(word_models), "cpu")
     assert np.abs(pt.words(BATCH[:6]) - ort.words(BATCH[:6])).max() < 1e-3
 
 
@@ -70,5 +70,6 @@ def test_registry_creates_torch_engine() -> None:
         pytest.skip("assets not fetched")
     assert next(b for b in available_backends() if b.id == "torch-cpu").available
     engine = create_engine("torch-cpu", SHIPPED)
-    assert engine.words(np.zeros((2, 1, 32, 256), np.float32)).shape == (2, 31)
+    words = engine.words(np.zeros((2, 1, 32, 256), np.float32))
+    assert words.shape == (2, len(engine.word_classes))
     assert engine.digits(np.zeros((2, 1, 32, 256), np.float32)).shape == (64, 2, 14)

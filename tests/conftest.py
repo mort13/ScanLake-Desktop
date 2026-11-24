@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,19 @@ def profiles() -> dict[str, HudProfile]:
     _require_assets()
     manifest = load_manifest(ASSETS / "profiles" / "manifest.json")
     return {e.key: load_hud_profile(ASSETS / "profiles" / e.file) for e in manifest}
+
+
+@pytest.fixture(scope="session")
+def word_models(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The shipped models without the letter model `name_crnn`, so the word classifier reads
+    names: for tests about that classifier (the bundled folder reads names letter by letter)."""
+    if not (ASSETS / "models" / "word_model2k.onnx.data").exists():
+        pytest.skip("assets not fetched: run `python packaging/fetch_assets.py`")
+    folder = tmp_path_factory.mktemp("word_models")
+    for path in (ASSETS / "models").iterdir():
+        if path.is_file() and not path.name.startswith("name_crnn."):
+            shutil.copyfile(path, folder / path.name)
+    return folder
 
 
 @pytest.fixture

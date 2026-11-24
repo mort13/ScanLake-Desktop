@@ -9,6 +9,7 @@ tests the plumbing, not the model.
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -61,8 +62,9 @@ class _DigitsOnV2:
 
 
 @pytest.fixture(scope="module")
-def engine() -> OrtEngine:
-    return OrtEngine(ModelFiles(ASSETS / "models"), "cpu")
+def engine(word_models: Path) -> OrtEngine:
+    """Picks the word images (by the word classifier's reads) and reads them back."""
+    return OrtEngine(ModelFiles(word_models), "cpu")
 
 
 def _pick_strips(engine: OrtEngine, pattern: str, n: int, rng: random.Random) -> list[np.ndarray]:

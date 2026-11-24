@@ -138,13 +138,17 @@ def test_without_a_letter_model_the_word_classifier_reads_names(tmp_path: Path) 
     assert not files.reads_names and files.names_model == "word_model2k"
 
 
-def test_captures_record_the_letter_model(letter_models: Path, tmp_path: Path) -> None:
+def test_captures_record_the_letter_model(
+    letter_models: Path, word_models: Path, tmp_path: Path
+) -> None:
     from scanlake_desktop.assets import AssetSet
 
     assets = AssetSet(ASSETS, tmp_path)
-    assert assets.models_in_use() == ("digit_crnn", "word_model2k")
-    shutil.copytree(letter_models, tmp_path / "models")
+    shutil.copytree(word_models, tmp_path / "models")
     assert assets.models_dir == tmp_path / "models"
+    assert assets.models_in_use() == ("digit_crnn", "word_model2k")
+    for path in letter_models.glob("name_crnn.*"):
+        shutil.copyfile(path, tmp_path / "models" / path.name)
     assert assets.models_in_use() == ("digit_crnn", "name_crnn")
     assert assets.model_versions().split(",")[1].startswith("name_crnn@")
 

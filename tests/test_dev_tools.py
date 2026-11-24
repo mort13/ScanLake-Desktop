@@ -136,9 +136,9 @@ def test_model_override(tmp_path: Path) -> None:
     bundled_tag = assets.model_versions()
     user = tmp_path / "models"
     user.mkdir()
-    for name in ("digit_crnn", "word_model2k"):
-        for suffix in (".onnx", ".onnx.data", ".json"):
-            shutil.copyfile(ASSETS / "models" / f"{name}{suffix}", user / f"{name}{suffix}")
+    for path in (ASSETS / "models").iterdir():
+        if path.suffix != ".safetensors":
+            shutil.copyfile(path, user / path.name)
     assert assets.models_dir == user
     assert assets.model_versions() == bundled_tag  # same files, same hashes
     assert assets.model_stamp().startswith(str(user))

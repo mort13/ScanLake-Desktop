@@ -49,14 +49,16 @@ def _hud_frame(hud: HudProfile, engine: object) -> np.ndarray:
     return frame
 
 
-def test_stage_edit_and_save(qtbot, app_env: Path, profiles: dict[str, HudProfile]) -> None:  # type: ignore[no-untyped-def]
+def test_stage_edit_and_save(  # type: ignore[no-untyped-def]
+    qtbot, app_env: Path, profiles: dict[str, HudProfile], word_models: Path
+) -> None:
     from scanlake_desktop.app import DesktopApp
     from scanlake_desktop.capture.source import write_image
     from scanlake_desktop.settings import Settings
     from scanlake_inference.metadata import ModelFiles
     from scanlake_inference.ort_backend import OrtEngine
 
-    engine = OrtEngine(ModelFiles(ASSETS / "models"), "cpu")
+    engine = OrtEngine(ModelFiles(word_models), "cpu")  # picks the frame's word images
     frame_path = app_env / "replay" / "frame.png"
     write_image(frame_path, _hud_frame(profiles["mole"], engine))
 

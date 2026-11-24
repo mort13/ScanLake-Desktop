@@ -29,10 +29,24 @@ WORDS = OLD_REPO / "data" / "word_training_data"
 
 
 @pytest.fixture(scope="module")
-def cpu() -> OrtEngine:
-    if not (ASSETS / "models" / "digit_crnn.onnx.data").exists():
+def cpu(word_models: Path) -> OrtEngine:
+    """The shipped digit model and the word classifier (see `word_models`)."""
+    return OrtEngine(ModelFiles(word_models), "cpu")
+
+
+def test_shipped_models_read_names_letter_by_letter() -> None:
+    from scanlake_core.names import lexicon
+
+    if not (ASSETS / "models" / "name_crnn.onnx.data").exists():
         pytest.skip("assets not fetched")
-    return OrtEngine(ModelFiles(ASSETS / "models"), "cpu")
+    files = ModelFiles(ASSETS / "models")
+    assert files.reads_names and files.names_model == "name_crnn"
+    engine = OrtEngine(files, "cpu")
+    assert engine.word_classes == lexicon().classes
+    assert engine.word_preprocess == STRIP_V2
+    scores = engine.words(_batch(3, seed=4))
+    assert scores.shape == (3, len(lexicon().classes))
+    assert np.allclose(np.exp(scores).sum(axis=1), 1, atol=1e-4)
 
 
 def _read_gray(path: Path) -> np.ndarray:
@@ -49,7 +63,8 @@ def test_metadata(cpu: OrtEngine) -> None:
     assert cpu.digit_classes == "0123456789.%m"  # "m": milli-SCU volumes ("25.26m SCU")
     assert cpu.blank_index == 0
     assert len(cpu.word_classes) == 31 and "empty" in cpu.word_classes
-    assert cpu.digit_preprocess == cpu.word_preprocess == STRIP_V1  # the pinned models
+    assert cpu.digit_preprocess == STRIP_V2  # the pinned Hyun digit model
+    assert cpu.word_preprocess == STRIP_V1
 
 
 def test_metadata_names_the_preprocessing(tmp_path: Path) -> None:
@@ -83,8 +98,8 @@ def test_batch_n_equals_batch_1(cpu: OrtEngine) -> None:
 
 
 @pytest.mark.skipif(not dml_available(), reason="DirectML not available")
-def test_directml_matches_cpu(cpu: OrtEngine) -> None:
-    gpu = OrtEngine(ModelFiles(ASSETS / "models"), "dml")
+def test_directml_matches_cpu(cpu: OrtEngine, word_models: Path) -> None:
+    gpu = OrtEngine(ModelFiles(word_models), "dml")
     batch = _batch(14, seed=3)
     assert np.allclose(gpu.digits(batch), cpu.digits(batch), atol=1e-3)
     assert np.allclose(gpu.words(batch[:6]), cpu.words(batch[:6]), atol=1e-3)

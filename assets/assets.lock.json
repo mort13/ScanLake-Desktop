@@ -142,26 +142,26 @@
     },
     {
       "path": "models/digit_crnn.json",
-      "url": "https://gateway.scanlake.rocks/public/models/digit_crnn.json",
-      "sha256": "076ee2c50d30021b7755bae9443560b56cf1e09665d4047bb4eea32cd8eca149",
-      "size": 545
+      "url": "https://gateway.scanlake.rocks/public/models/hyun3/digit_crnn.json",
+      "sha256": "460dd27f32a6d0de3368516e672ee3f9cc447cf892cd0bec5bb7ced0eded55fc",
+      "size": 544
     },
     {
       "path": "models/digit_crnn.onnx",
-      "url": "https://gateway.scanlake.rocks/public/models/digit_crnn.onnx",
+      "url": "https://gateway.scanlake.rocks/public/models/hyun3/digit_crnn.onnx",
       "sha256": "29f6a40f8e21faf978abead4c8c387aac5960498464986f2d750065e637af271",
       "size": 8943
     },
     {
       "path": "models/digit_crnn.onnx.data",
-      "url": "https://gateway.scanlake.rocks/public/models/digit_crnn.onnx.data",
-      "sha256": "aa14301619985c6f1ad311f26c4d403d502afde910db56e4fdc2e67482ed525b",
+      "url": "https://gateway.scanlake.rocks/public/models/hyun3/digit_crnn.onnx.data",
+      "sha256": "4194b3f3a93d8f2cd366440f3805e6319e3458c9d6151a93fd5789621556a0ea",
       "size": 13605432
     },
     {
       "path": "models/digit_crnn.safetensors",
-      "url": "https://gateway.scanlake.rocks/public/models/digit_crnn.safetensors",
-      "sha256": "962bf89b63559136713c9eba1cdd0825d1171058b602799894ac35f19d26cd9e",
+      "url": "https://gateway.scanlake.rocks/public/models/hyun3/digit_crnn.safetensors",
+      "sha256": "b3914f7e129f8c6628577e9ba75400d32f7ce6ea6b038e07eb572fd39e03e0c5",
       "size": 13614816
     },
     {
@@ -187,6 +187,30 @@
       "url": "https://gateway.scanlake.rocks/public/models/word_model2k.safetensors",
       "sha256": "1359430c3b5e05017799b319c8d93809b881343c00ba293469a968171da32178",
       "size": 17181564
+    },
+    {
+      "path": "models/name_crnn.json",
+      "url": "https://gateway.scanlake.rocks/public/models/names3/name_crnn.json",
+      "sha256": "cf7ef69919552ea9a26c7204c685bbfefe8219f7158f8316947b9e46652b50cc",
+      "size": 360
+    },
+    {
+      "path": "models/name_crnn.onnx",
+      "url": "https://gateway.scanlake.rocks/public/models/names3/name_crnn.onnx",
+      "sha256": "7c6420803f93e143c646c8b88607b3efccc6b4543b076f52f5a410879134e3dd",
+      "size": 8929
+    },
+    {
+      "path": "models/name_crnn.onnx.data",
+      "url": "https://gateway.scanlake.rocks/public/models/names3/name_crnn.onnx.data",
+      "sha256": "4730d92811c217b853dde6865271e1d02ab50e18a6de08145d2f651816155d13",
+      "size": 13638264
+    },
+    {
+      "path": "models/name_crnn.safetensors",
+      "url": "https://gateway.scanlake.rocks/public/models/names3/name_crnn.safetensors",
+      "sha256": "1b077d3a20108354426f7dc8cfd9746c25b3b4d094e50e21e0188fd8f655cc39",
+      "size": 13647648
     }
   ]
 }
