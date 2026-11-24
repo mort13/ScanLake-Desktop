@@ -1,6 +1,6 @@
 [project]
 name = "scanlake-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "ScanLake Desktop: capture Star Citizen mining scans and upload them to ScanLake"
 requires-python = ">=3.13"
 dependencies = [
