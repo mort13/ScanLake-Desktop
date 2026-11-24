@@ -1125,7 +1125,7 @@ requires-dist = [
 
 [[package]]
 name = "scanlake-desktop"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "apps/desktop" }
 dependencies = [
     { name = "keyring" },
